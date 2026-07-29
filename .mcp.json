@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "autodevops-bridge": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/mcp-server/dist/index.js"],
+      "env": {
+        "AUTODEVOPS_HOST": "127.0.0.1",
+        "AUTODEVOPS_PORT": "8787"
+      }
+    }
+  }
+}

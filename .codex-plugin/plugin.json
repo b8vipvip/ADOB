@@ -1,0 +1,37 @@
+{
+  "name": "autodevops-bridge",
+  "version": "0.1.0",
+  "description": "Reusable GitHub Runner-based development, deployment, diagnostics, status, and rollback workflows for ChatGPT and Codex.",
+  "author": {
+    "name": "b8vipvip",
+    "url": "https://github.com/b8vipvip"
+  },
+  "homepage": "https://github.com/b8vipvip/ADOB",
+  "repository": "https://github.com/b8vipvip/ADOB",
+  "license": "MIT",
+  "keywords": [
+    "devops",
+    "github-actions",
+    "self-hosted-runner",
+    "deployment",
+    "diagnostics",
+    "rollback"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "AutoDevOps Bridge",
+    "shortDescription": "Safely deploy and maintain self-hosted projects",
+    "longDescription": "Connect GitHub repositories to self-hosted runners, inspect sanitized production status, trigger tested deployments, collect diagnostics, and roll back releases without exposing SSH keys or unrestricted shell access to ChatGPT.",
+    "developerName": "b8vipvip",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/b8vipvip/ADOB",
+    "defaultPrompt": [
+      "Check the current health and deployment state of my project.",
+      "Diagnose the latest failed deployment and explain the likely cause.",
+      "Deploy the latest tested main branch release.",
+      "Prepare a safe rollback to the previous production release."
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+[
+  {
+    "id": "sumeme",
+    "name": "SuMeMe",
+    "repo": "b8vipvip/sumeme",
+    "productionBranch": "main",
+    "statusBranch": "ops-status",
+    "statusPath": "status/status.json",
+    "workflows": {
+      "deploy": "deploy-production.yml",
+      "diagnose": "diagnose-production.yml",
+      "rollback": "rollback-production.yml"
+    }
+  },
+  {
+    "id": "example-api",
+    "name": "Example API",
+    "repo": "owner/example-api",
+    "productionBranch": "main",
+    "statusBranch": "ops-status",
+    "statusPath": "status/status.json",
+    "workflows": {
+      "deploy": "deploy-production.yml",
+      "diagnose": "diagnose-production.yml",
+      "rollback": "rollback-production.yml"
+    }
+  }
+]
