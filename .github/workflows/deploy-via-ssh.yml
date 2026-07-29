@@ -228,12 +228,18 @@ jobs:
           set -euo pipefail
           staging_root="${DEPLOY_PATH}.adob/incoming"
           ssh adob-production \
-            "if test -d '${staging_root}'; then \
-               find '${staging_root}' -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\\n' \
-               | sort -nr \
-               | awk 'NR > ${RETAIN_STAGING_RELEASES} {print \\$2}' \
-               | xargs -r rm -rf --; \
-             fi"
+            "STAGING_ROOT='${staging_root}' RETAIN='${RETAIN_STAGING_RELEASES}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          test -d "${STAGING_ROOT}" || exit 0
+          mapfile -t releases < <(
+            find "${STAGING_ROOT}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
+              | sort -nr \
+              | cut -d' ' -f2-
+          )
+          for ((index=RETAIN; index<${#releases[@]}; index++)); do
+            rm -rf -- "${releases[index]}"
+          done
+          REMOTE
 
       - name: Print sanitized deployment state
         if: always()
@@ -245,6 +251,6 @@ jobs:
           echo "Expected release: ${RELEASE_SHA}"
           ssh adob-production \
             "printf 'Current release: '; \
-             cat '${DEPLOY_PATH}/.deploy/current_sha' 2>/dev/null || printf 'unknown\\n'; \
+             cat '${DEPLOY_PATH}/.deploy/current_sha' 2>/dev/null || printf 'unknown\n'; \
              tail -n 20 '${DEPLOY_PATH}/.deploy/history.log' 2>/dev/null || true" \
             || true
