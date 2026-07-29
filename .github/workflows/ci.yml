@@ -30,6 +30,17 @@ jobs:
         run: node -e "JSON.parse(require('fs').readFileSync('.codex-plugin/plugin.json','utf8')); JSON.parse(require('fs').readFileSync('.mcp.json','utf8'));"
       - name: Validate installer syntax
         working-directory: .
-        run: bash -n installer/install-runner.sh
+        run: bash -n installer/*.sh
+      - name: Validate workflow YAML
+        working-directory: .
+        run: ruby -e "require 'yaml'; Dir['.github/workflows/*.{yml,yaml}'].each { |f| YAML.load_file(f); puts f }"
+      - name: Enforce pinned SSH trust policy
+        working-directory: .
+        run: |
+          grep -Fq 'StrictHostKeyChecking yes' .github/workflows/deploy-via-ssh.yml
+          if grep -Eq 'StrictHostKeyChecking[= ]no|ssh-keyscan' .github/workflows/deploy-via-ssh.yml; then
+            echo 'Unsafe SSH trust bypass found' >&2
+            exit 1
+          fi
       - name: Build container
         run: docker build -t autodevops-bridge:test .

@@ -1,0 +1,256 @@
+name: ADOB deploy via SSH
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: Stable lowercase project identifier used for concurrency and staging paths.
+        required: true
+        type: string
+      ssh_host:
+        description: VPS SSH hostname or public IP.
+        required: true
+        type: string
+      ssh_port:
+        description: VPS SSH port.
+        required: false
+        default: "22"
+        type: string
+      ssh_user:
+        description: Dedicated non-root deployment user on the VPS.
+        required: true
+        type: string
+      deploy_path:
+        description: Absolute production directory containing the persistent .env file.
+        required: true
+        type: string
+      deploy_script:
+        description: Repository-relative deployment script executed from the uploaded source tree.
+        required: false
+        default: scripts/deploy-production.sh
+        type: string
+      public_health_url:
+        description: Optional public health URL checked after the remote deployment succeeds.
+        required: false
+        default: ""
+        type: string
+      retain_staging_releases:
+        description: Number of uploaded source trees retained outside the production directory.
+        required: false
+        default: 3
+        type: number
+    secrets:
+      ssh_private_key:
+        description: Dedicated OpenSSH private key for the deployment user.
+        required: true
+      ssh_host_key:
+        description: Exact known_hosts line copied from the VPS host key.
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adob-${{ inputs.project_name }}-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.project_name }} via SSH
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Validate reusable-workflow inputs
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ inputs.project_name }}
+          SSH_HOST: ${{ inputs.ssh_host }}
+          SSH_PORT: ${{ inputs.ssh_port }}
+          SSH_USER: ${{ inputs.ssh_user }}
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          DEPLOY_SCRIPT: ${{ inputs.deploy_script }}
+          RETAIN_STAGING_RELEASES: ${{ inputs.retain_staging_releases }}
+          SSH_PRIVATE_KEY: ${{ secrets.ssh_private_key }}
+          SSH_HOST_KEY: ${{ secrets.ssh_host_key }}
+        run: |
+          set -euo pipefail
+
+          [[ "${PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || {
+            echo "::error::project_name must be lowercase letters, digits, and hyphens"
+            exit 64
+          }
+          [[ "${SSH_HOST}" =~ ^[A-Za-z0-9.-]+$ ]] || {
+            echo "::error::ssh_host contains unsupported characters"
+            exit 64
+          }
+          [[ "${SSH_PORT}" =~ ^[0-9]{1,5}$ ]] && (( SSH_PORT >= 1 && SSH_PORT <= 65535 )) || {
+            echo "::error::ssh_port must be between 1 and 65535"
+            exit 64
+          }
+          [[ "${SSH_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]] || {
+            echo "::error::ssh_user is invalid"
+            exit 64
+          }
+          [[ "${DEPLOY_PATH}" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+            echo "::error::deploy_path must be a safe absolute path"
+            exit 64
+          }
+          [[ "${DEPLOY_SCRIPT}" =~ ^[A-Za-z0-9._/-]+$ && "${DEPLOY_SCRIPT}" != /* && "${DEPLOY_SCRIPT}" != *..* ]] || {
+            echo "::error::deploy_script must be a safe repository-relative path"
+            exit 64
+          }
+          [[ "${RETAIN_STAGING_RELEASES}" =~ ^[0-9]+$ ]] && (( RETAIN_STAGING_RELEASES >= 1 && RETAIN_STAGING_RELEASES <= 20 )) || {
+            echo "::error::retain_staging_releases must be between 1 and 20"
+            exit 64
+          }
+          [[ -n "${SSH_PRIVATE_KEY}" && -n "${SSH_HOST_KEY}" ]] || {
+            echo "::error::SSH deployment secrets are missing"
+            exit 78
+          }
+
+      - name: Check out exact verified caller revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify checkout and deployment script
+        shell: bash
+        env:
+          DEPLOY_SCRIPT: ${{ inputs.deploy_script }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "${actual}" = "${GITHUB_SHA}"
+          test -f "${DEPLOY_SCRIPT}"
+          bash -n "${DEPLOY_SCRIPT}"
+          echo "Verified caller release SHA: ${actual}"
+
+      - name: Configure pinned SSH trust
+        shell: bash
+        env:
+          SSH_HOST: ${{ inputs.ssh_host }}
+          SSH_PORT: ${{ inputs.ssh_port }}
+          SSH_USER: ${{ inputs.ssh_user }}
+          SSH_PRIVATE_KEY: ${{ secrets.ssh_private_key }}
+          SSH_HOST_KEY: ${{ secrets.ssh_host_key }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${HOME}/.ssh"
+          printf '%s\n' "${SSH_PRIVATE_KEY}" | tr -d '\r' > "${HOME}/.ssh/adob_deploy"
+          printf '%s\n' "${SSH_HOST_KEY}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/adob_deploy" "${HOME}/.ssh/known_hosts"
+
+          cat > "${HOME}/.ssh/config" <<EOF
+          Host adob-production
+            HostName ${SSH_HOST}
+            Port ${SSH_PORT}
+            User ${SSH_USER}
+            IdentityFile ${HOME}/.ssh/adob_deploy
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ${HOME}/.ssh/known_hosts
+            ConnectTimeout 20
+            ServerAliveInterval 30
+            ServerAliveCountMax 4
+          EOF
+          chmod 600 "${HOME}/.ssh/config"
+
+          ssh adob-production 'printf "ssh-ready\n"'
+
+      - name: Upload immutable caller source tree
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ inputs.project_name }}
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          staging_root="${DEPLOY_PATH}.adob"
+          remote_source="${staging_root}/incoming/${RELEASE_SHA}"
+          ssh adob-production "mkdir -p '${remote_source}'"
+
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude '.env' \
+            --exclude '.deploy/' \
+            --exclude '.adob/' \
+            --exclude '__pycache__/' \
+            --exclude 'node_modules/' \
+            --exclude 'dist/' \
+            --exclude 'coverage/' \
+            --exclude '*.log' \
+            -e ssh \
+            ./ "adob-production:${remote_source}/"
+
+          printf 'Uploaded %s release %s to %s\n' \
+            "${PROJECT_NAME}" "${RELEASE_SHA}" "${remote_source}"
+
+      - name: Execute allow-listed project deployment script
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          DEPLOY_SCRIPT: ${{ inputs.deploy_script }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          staging_root="${DEPLOY_PATH}.adob"
+          remote_source="${staging_root}/incoming/${RELEASE_SHA}"
+          remote_script="${remote_source}/${DEPLOY_SCRIPT}"
+
+          ssh adob-production \
+            "test -f '${DEPLOY_PATH}/.env' && \
+             chmod +x '${remote_script}' && \
+             DEPLOY_DIR='${DEPLOY_PATH}' SOURCE_DIR='${remote_source}' \
+             bash '${remote_script}' '${RELEASE_SHA}'"
+
+      - name: Check public health endpoint
+        if: inputs.public_health_url != ''
+        shell: bash
+        env:
+          PUBLIC_HEALTH_URL: ${{ inputs.public_health_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            --max-time 20 \
+            "${PUBLIC_HEALTH_URL}" >/dev/null
+
+      - name: Prune old uploaded source trees
+        if: success()
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          RETAIN_STAGING_RELEASES: ${{ inputs.retain_staging_releases }}
+        run: |
+          set -euo pipefail
+          staging_root="${DEPLOY_PATH}.adob/incoming"
+          ssh adob-production \
+            "STAGING_ROOT='${staging_root}' RETAIN='${RETAIN_STAGING_RELEASES}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          test -d "${STAGING_ROOT}" || exit 0
+          mapfile -t releases < <(
+            find "${STAGING_ROOT}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
+              | sort -nr \
+              | cut -d' ' -f2-
+          )
+          for ((index=RETAIN; index<${#releases[@]}; index++)); do
+            rm -rf -- "${releases[index]}"
+          done
+          REMOTE
+
+      - name: Print sanitized deployment state
+        if: always()
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          echo "Expected release: ${RELEASE_SHA}"
+          ssh adob-production \
+            "printf 'Current release: '; \
+             cat '${DEPLOY_PATH}/.deploy/current_sha' 2>/dev/null || printf 'unknown\n'; \
+             tail -n 20 '${DEPLOY_PATH}/.deploy/history.log' 2>/dev/null || true" \
+            || true
