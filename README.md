@@ -1,5 +1,7 @@
 # AutoDevOps Bridge (ADOB)
 
+[![CI](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml/badge.svg)](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml)
+
 AutoDevOps Bridge is a reusable ChatGPT/Codex plugin for operating self-hosted software projects through GitHub Actions and self-hosted runners.
 
 It deliberately **does not expose SSH, root credentials, or an unrestricted shell** to the model. ChatGPT works through auditable, allow-listed GitHub workflows instead:
