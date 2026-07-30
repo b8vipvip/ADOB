@@ -111,6 +111,35 @@ MCP 地址：              http://127.0.0.1:8787/mcp
 
 非交互安装参数和完整操作说明见[使用方法、工作流程与示例](docs/zh-CN/USAGE.md)。
 
+## GitHub 项目一键接入
+
+控制服务运行后，在目标项目的本地 Git 仓库中执行第二个向导：
+
+```bash
+gh auth login
+
+curl -fsSL \
+  https://raw.githubusercontent.com/b8vipvip/ADOB/main/installer/setup-managed-repo.sh \
+  -o /tmp/setup-managed-repo.sh
+
+bash /tmp/setup-managed-repo.sh
+```
+
+对于 Docker Compose 项目，向导可以自动：
+
+- 检查目标 GitHub 仓库和你的写入权限；
+- 创建独立接入分支；
+- 解析并固定准确的 ADOB Commit SHA；
+- 生成 CI、部署、诊断、回滚和状态发布工作流；
+- 生成受限制的项目适配脚本；
+- 设置 GitHub Actions Variables，并可从文件上传 GHS Secrets；
+- 生成供 ADOB 服务器注册使用的 `.adob-project.json`；
+- 提交、推送并创建草稿接入 Pull Request。
+
+除非显式设置 `FORCE=true`，向导不会覆盖已有的同名工作流或脚本。合并前必须在草稿 PR 中检查持久化目录排除规则和健康检查逻辑。
+
+GitHub Token 权限、Variables/Secrets 完整表、Actions 设置、生产分支保护、首次验证顺序和常见报错处理见[GitHub 详细配置与快速接入](docs/zh-CN/GITHUB_SETUP.md)。
+
 ## 本地开发运行
 
 ```bash
@@ -204,6 +233,7 @@ ops-status 分支：
 | 主题 | English | 简体中文 | 日本語 |
 |---|---|---|---|
 | 使用方法、流程与示例 | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
+| GitHub 详细配置 | [Open](docs/GITHUB_SETUP.md) | [打开](docs/zh-CN/GITHUB_SETUP.md) | [開く](docs/ja-JP/GITHUB_SETUP.md) |
 | 部署模式 | [Open](docs/DEPLOYMENT_MODES.md) | [打开](docs/zh-CN/DEPLOYMENT_MODES.md) | [開く](docs/ja-JP/DEPLOYMENT_MODES.md) |
 | 项目与服务器接入 | [Open](docs/ONBOARDING.md) | [打开](docs/zh-CN/ONBOARDING.md) | [開く](docs/ja-JP/ONBOARDING.md) |
 | GHS SSH 部署 | [Open](docs/SSH_TRANSPORT.md) | [打开](docs/zh-CN/SSH_TRANSPORT.md) | [開く](docs/ja-JP/SSH_TRANSPORT.md) |
@@ -216,12 +246,14 @@ ops-status 分支：
 ```text
 .codex-plugin/plugin.json                 Agent 包元数据
 .mcp.json                                 本地 MCP 启动配置
-.github/workflows/deploy-via-ssh.yml      可复用的 GHS 部署工作流
+.github/workflows/*-via-ssh.yml           可复用的 GHS 生产工作流
 skills/autodevops/                        Agent 操作规则和提示
 mcp-server/                               Streamable HTTP/stdio MCP 控制服务
 installer/bootstrap-server.sh             服务器一键配置脚本
+installer/setup-managed-repo.sh           GitHub 项目接入向导
 installer/install-runner.sh               VSR 自托管 Runner 安装器
 installer/install-ssh-deploy.sh           GHS 部署用户安装器
+templates/managed-repo/                   自动生成的工作流和适配脚本模板
 examples/projects.json                    项目注册表示例
 docs/                                     架构、接入、安全与使用文档
 ```
