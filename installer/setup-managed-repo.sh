@@ -90,7 +90,12 @@ git rev-parse --show-toplevel >/dev/null 2>&1 || fail "Run this inside the targe
 cd "$(git rev-parse --show-toplevel)"
 [[ -z "$(git status --porcelain)" ]] || fail "Commit or stash existing changes before onboarding."
 
-if [[ -z "$TARGET_REPO" ]]; then TARGET_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"; fi
+LOCAL_REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+if [[ -z "$TARGET_REPO" ]]; then
+  TARGET_REPO="$LOCAL_REPO"
+elif [[ "$TARGET_REPO" != "$LOCAL_REPO" ]]; then
+  fail "TARGET_REPO=${TARGET_REPO} does not match the current local repository ${LOCAL_REPO}"
+fi
 [[ "$TARGET_REPO" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] || fail "TARGET_REPO must be owner/repository"
 VIEWER_PERMISSION="$(gh repo view "$TARGET_REPO" --json viewerPermission --jq .viewerPermission)"
 case "$VIEWER_PERMISSION" in ADMIN|MAINTAIN|WRITE) ;; *) fail "GitHub permission $VIEWER_PERMISSION cannot configure $TARGET_REPO" ;; esac
@@ -124,7 +129,8 @@ if [[ -z "$PUBLIC_HEALTH_URL" && "$NON_INTERACTIVE" != "true" ]]; then
 fi
 
 log "Resolving exact ADOB revision ${ADOB_REPOSITORY}@${ADOB_REF}"
-ADOB_SHA="$(gh api "repos/${ADOB_REPOSITORY}/commits/${ADOB_REF}" --jq .sha)"
+ENCODED_ADOB_REF="$(jq -rn --arg value "$ADOB_REF" '$value|@uri')"
+ADOB_SHA="$(gh api "repos/${ADOB_REPOSITORY}/commits/${ENCODED_ADOB_REF}" --jq .sha)"
 [[ "$ADOB_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "Unable to resolve ADOB commit SHA"
 TEMPLATE_BASE_URL="${TEMPLATE_BASE_URL:-https://raw.githubusercontent.com/${ADOB_REPOSITORY}/${ADOB_SHA}/templates/managed-repo}"
 
@@ -135,15 +141,32 @@ fi
 git fetch origin "$PRODUCTION_BRANCH"
 git switch --create "$ONBOARD_BRANCH" "origin/$PRODUCTION_BRANCH"
 
+generated_workflows=(
+  .github/workflows/ci.yml
+  .github/workflows/deploy-production.yml
+  .github/workflows/diagnose-production.yml
+  .github/workflows/rollback-production.yml
+  .github/workflows/publish-status.yml
+)
+generated_scripts=(
+  scripts/adob-ci.sh
+  scripts/deploy-production.sh
+  scripts/diagnose-production.sh
+  scripts/rollback-production.sh
+  scripts/publish-status.sh
+)
+
 log "Downloading reviewed starter templates"
-fetch_template common/.github/workflows/ci.yml .github/workflows/ci.yml
-fetch_template common/scripts/adob-ci.sh scripts/adob-ci.sh
+fetch_template common/.github/workflows/ci.yml "${generated_workflows[0]}"
+fetch_template common/scripts/adob-ci.sh "${generated_scripts[0]}"
 for name in deploy-production diagnose-production rollback-production publish-status; do
   fetch_template "${DEPLOYMENT_MODE,,}/.github/workflows/${name}.yml" ".github/workflows/${name}.yml"
   fetch_template "docker-compose/scripts/${name}.sh" "scripts/${name}.sh"
 done
-chmod +x scripts/*.sh
-for file in .github/workflows/*.yml; do replace_placeholders "$file"; done
+chmod +x "${generated_scripts[@]}"
+for file in "${generated_workflows[@]}"; do replace_placeholders "$file"; done
+for file in "${generated_scripts[@]}"; do bash -n "$file"; done
+git diff --check
 
 log "Setting GitHub Actions variables"
 gh variable set ADOB_MODE --repo "$TARGET_REPO" --body "$DEPLOYMENT_MODE"
@@ -175,7 +198,7 @@ fi
 PROJECT_JSON="$(jq -n --arg id "$PROJECT_ID" --arg name "$PROJECT_NAME" --arg repo "$TARGET_REPO" --arg branch "$PRODUCTION_BRANCH" --arg mode "$DEPLOYMENT_MODE" '{id:$id,name:$name,repo:$repo,productionBranch:$branch,statusBranch:"ops-status",statusPath:"status/status.json",deploymentMode:$mode,workflows:{deploy:"deploy-production.yml",diagnose:"diagnose-production.yml",rollback:"rollback-production.yml"}}')"
 printf '%s\n' "$PROJECT_JSON" > .adob-project.json
 
-git add .github/workflows scripts .adob-project.json
+git add "${generated_workflows[@]}" "${generated_scripts[@]}" .adob-project.json
 log "Generated files:"
 git diff --cached --stat
 
