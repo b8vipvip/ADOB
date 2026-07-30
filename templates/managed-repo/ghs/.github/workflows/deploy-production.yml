@@ -1,0 +1,36 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    uses: b8vipvip/ADOB/.github/workflows/deploy-via-ssh.yml@__ADOB_SHA__
+    with:
+      adob_mode: GHS
+      project_name: ${{ vars.ADOB_PROJECT_ID }}
+      ssh_host: ${{ vars.VPS_HOST }}
+      ssh_port: ${{ vars.VPS_PORT || '22' }}
+      ssh_user: ${{ vars.VPS_USER }}
+      deploy_path: ${{ vars.DEPLOY_PATH }}
+      deploy_script: scripts/deploy-production.sh
+      public_health_url: ${{ vars.PUBLIC_HEALTH_URL || '' }}
+    secrets:
+      ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      ssh_host_key: ${{ secrets.SSH_HOST_KEY }}
+
+  publish-status:
+    needs: deploy
+    uses: b8vipvip/ADOB/.github/workflows/publish-status-via-ssh.yml@__ADOB_SHA__
+    with:
+      project_name: ${{ vars.ADOB_PROJECT_ID }}
+      ssh_host: ${{ vars.VPS_HOST }}
+      ssh_port: ${{ vars.VPS_PORT || '22' }}
+      ssh_user: ${{ vars.VPS_USER }}
+      deploy_path: ${{ vars.DEPLOY_PATH }}
+    secrets:
+      ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      ssh_host_key: ${{ secrets.SSH_HOST_KEY }}
