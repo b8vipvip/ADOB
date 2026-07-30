@@ -147,6 +147,7 @@ if [[ -z "${AUTODEVOPS_PROJECTS_JSON:-}" ]]; then
 else
   printf '%s' "${AUTODEVOPS_PROJECTS_JSON}" | jq -e 'type == "array"' >/dev/null \
     || fail "AUTODEVOPS_PROJECTS_JSON must be a valid JSON array"
+  AUTODEVOPS_PROJECTS_JSON="$(printf '%s' "${AUTODEVOPS_PROJECTS_JSON}" | jq -c .)"
   DEPLOYMENT_MODE="$(printf '%s' "${AUTODEVOPS_PROJECTS_JSON}" | jq -r '.[0].deploymentMode // "VSR"')"
   PROJECT_ID="$(printf '%s' "${AUTODEVOPS_PROJECTS_JSON}" | jq -r '.[0].id // "project"')"
 fi
