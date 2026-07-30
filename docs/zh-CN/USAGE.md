@@ -4,6 +4,8 @@
 
 本文说明 ADOB 如何连接 GPT 客户端、GitHub 仓库和 VPS，如何安装控制服务，一次完整的自动化开发流程如何运行，以及怎样向 Agent 提出安全、清晰、可执行的请求。
 
+> GitHub 仓库的 Token 权限、Variables、Secrets、Actions 设置、分支保护和一键接入向导，请直接参阅 [GitHub 详细配置与快速接入](GITHUB_SETUP.md)。
+
 ## 1. 组件与职责
 
 | 组件 | 主要职责 | 保存在这里的密钥 |
@@ -176,6 +178,18 @@ http://127.0.0.1:8787/mcp
 
 ## 5. 准备被管理仓库
 
+对于 Docker Compose 项目，推荐在目标项目目录直接运行 GitHub 接入向导：
+
+```bash
+gh auth login
+curl -fsSL \
+  https://raw.githubusercontent.com/b8vipvip/ADOB/main/installer/setup-managed-repo.sh \
+  -o /tmp/setup-managed-repo.sh
+bash /tmp/setup-managed-repo.sh
+```
+
+向导会生成并以草稿 PR 交付下面的标准文件；完整的 GitHub 页面配置和非交互参数见 [GitHub 详细配置与快速接入](GITHUB_SETUP.md)。
+
 被管理项目通常包含：
 
 ```text
@@ -216,10 +230,10 @@ VSR 需要短期 GitHub Runner 注册 Token，以及 GitHub 页面显示的准�
 
 ```bash
 export GITHUB_REPOSITORY=owner/example
-export RUNNER_ARCHIVE_URL='https://github.com/actions/runner/releases/download/...'
+export RUNNER_ARCHIVE_URL='https://github.com/actions/runner/releases/download/.../actions-runner-linux-x64-....tar.gz'
 export RUNNER_ARCHIVE_SHA256='sha256-from-github'
 export RUNNER_NAME='example-production-vps'
-export RUNNER_LABELS='autodevops-production'
+export RUNNER_LABELS='production,autodevops-production'
 export DEPLOY_DIR='/opt/example'
 
 sudo -E bash installer/install-runner.sh
@@ -292,79 +306,76 @@ Agent 重新读取生产状态并检查：
 
 ### 阶段 F：诊断或回滚
 
-部署失败时，只收集限制范围的诊断信息，定位失败步骤，优先采用向前修复。只有回滚比修复更安全，并且用户提供字面确认值 `ROLLBACK` 时，才允许回滚。
+部署失败时，只收集限制范围、经过脱敏的诊断信息。优先通过新 Commit 向前修复；只有回滚比继续修复更安全时，才在明确目标版本、数据库迁移风险和字面确认值 `ROLLBACK` 后执行回滚。
 
-## 8. 完整请求示例
+## 8. 使用示例
 
-### 只读项目审计
-
-```text
-审计 example 项目。读取当前 ADOB 模式、脱敏生产状态、未合并 Pull Request 和最近十次工作流。分别说明哪些是已验证事实、哪些是推测、哪些需要处理，不要修改任何内容。
-```
-
-### 开发新功能
+### 项目审计，不修改任何内容
 
 ```text
-为 example 后台增加 CSV 导出。先检查当前架构和测试，创建新分支，只实现最小完整变更，补充测试，运行相关检查，检查 Diff 和安全影响后创建 Pull Request。未完成评审和合并前不要部署。
+检查 example 的配置、部署模式、生产状态、最近 10 次 Actions 运行、当前生产 SHA 和 main SHA。只报告差异和风险，不触发任何写操作。
 ```
 
-### 修复生产故障
+### 实现功能并创建 PR
 
 ```text
-example API 偶发返回 502。先读取生产状态和最近工作流，再为 API 服务收集限制范围的诊断信息。不要索取 .env 或原始密钥。判断最可能的根因，在分支中修复、测试并创建 Pull Request。
+为 example 增加用户会话过期提示。在独立分支完成最小修改，补充测试，运行 CI，检查安全影响后创建 Pull Request。不要直接修改 main，也不要自动部署。
 ```
 
-### 部署已评审版本
+### 修复故障
 
 ```text
-example 的 main 已通过 CI，Pull Request 已合并。使用项目配置的 GHS 模式部署。工作流完成后，对比生产 SHA 与 main，并验证公网和本机健康检查。
+检查 example 最近一次失败的 CI 或部署，指出具体失败步骤和最可能原因。在新分支修复并补充回归测试，通过 CI 后创建 Pull Request。
 ```
 
-### 受控回滚
+### 部署并验证
 
 ```text
-准备把 example 回滚到 <known-good-sha>。先检查当前版本，解释数据库迁移是否可能不可逆，并显示将执行的准确工作流。在我回复 ROLLBACK 前不要执行。
+确认 example 的 main 已通过 CI，然后使用项目配置的 GHS 模式部署。部署后核对 GitHub main SHA、工作流 SHA 和生产 current_sha，并检查健康状态。
 ```
 
-## 9. 常用运维命令
+### 诊断服务
 
-重启控制服务：
+```text
+诊断 example 的 api 服务，读取最近 30 分钟最多 200 行经过脱敏的日志，并总结错误时间线。不要请求 .env 或无限制原始日志。
+```
+
+### 准备回滚
+
+```text
+准备把 example 回滚到 <SHA>。先确认该 SHA 是已知发布，说明应用状态和数据库迁移风险。除非我提供字面确认值 ROLLBACK，否则不要执行。
+```
+
+## 9. 日常管理
+
+查看服务：
+
+```bash
+sudo docker compose -f /opt/adob-agent/compose.yaml ps
+sudo docker compose -f /opt/adob-agent/compose.yaml logs --tail=200
+```
+
+重启服务：
 
 ```bash
 sudo docker compose -f /opt/adob-agent/compose.yaml restart
-```
-
-更新源码后重新构建：
-
-```bash
-sudo docker compose -f /opt/adob-agent/compose.yaml up -d --build
-```
-
-停止控制服务：
-
-```bash
-sudo docker compose -f /opt/adob-agent/compose.yaml down
 ```
 
 轮换 MCP Bearer 密钥：
 
 ```bash
 new_secret="$(openssl rand -hex 32)"
-sudo sed -i "s/^MCP_SHARED_SECRET=.*/MCP_SHARED_SECRET=${new_secret}/" /etc/adob-agent/adob.env
-sudo docker compose -f /opt/adob-agent/compose.yaml up -d --force-recreate
+sudo sed -i "s/^MCP_SHARED_SECRET=.*/MCP_SHARED_SECRET=${new_secret}/" \
+  /etc/adob-agent/adob.env
+sudo docker compose -f /opt/adob-agent/compose.yaml up -d
 ```
 
-轮换 GitHub Token 时，编辑 `/etc/adob-agent/adob.env`，保持权限为 `600`，然后重建容器。
+轮换 GitHub Token 后，同样更新 `GITHUB_TOKEN` 并重启服务。不要在终端输出、聊天记录、Issue 或日志中复制真实密钥。
 
-## 10. 安全检查清单
+## 10. 当前边界
 
-- 控制服务保持私有，或放在 HTTPS 后面。
-- 使用只授权给指定仓库的 Fine-grained GitHub Token。
-- 不在 GPT 消息中发送 GitHub Token 或 SSH 私钥。
-- 保持 GHS 主机公钥校验开启。
-- 保护生产分支和部署工作流。
-- 生产数据不得进入上传的源码暂存目录。
-- 对状态和诊断内容脱敏并限制范围。
-- 部署前要求评审和 CI 通过。
-- 每次生产变更后核对实际部署 SHA。
-- 衍生分发时保留 Apache-2.0 许可证和 NOTICE 署名。
+- 一键 GitHub 向导当前为 Docker Compose 项目生成标准适配器；systemd、Kubernetes 等运行时需要实现相同脚本契约；
+- ADOB 不自动完成域名所有权验证、CAPTCHA、付款或平台审核；
+- 私有 Bearer 模式不等于公开多租户认证；
+- 应用代码回滚不代表数据库迁移自动反向执行；
+- AI 输出必须经过 GitHub Diff、CI 和生产状态验证。
