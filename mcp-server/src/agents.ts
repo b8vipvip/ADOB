@@ -55,7 +55,9 @@ async function startHttp(): Promise<void> {
       if (!transport && req.method === "POST" && isInitializeRequest(req.body)) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (id: string) => transports.set(id, transport as StreamableHTTPServerTransport),
+          onsessioninitialized: (id: string) => {
+            transports.set(id, transport as StreamableHTTPServerTransport);
+          },
         });
         transport.onclose = () => { if (transport?.sessionId) transports.delete(transport.sessionId); };
         await createMcpServer().connect(transport);
