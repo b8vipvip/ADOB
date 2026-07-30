@@ -111,6 +111,35 @@ MCP エンドポイント： http://127.0.0.1:8787/mcp
 
 非対話導入の変数と完全な手順は[利用方法、ワークフロー、例](docs/ja-JP/USAGE.md)を参照してください。
 
+## GitHub プロジェクトのワンコマンド接続
+
+コントローラー起動後、対象プロジェクトのクリーンなローカル Git リポジトリ内で 2 つ目のウィザードを実行します。
+
+```bash
+gh auth login
+
+curl -fsSL \
+  https://raw.githubusercontent.com/b8vipvip/ADOB/main/installer/setup-managed-repo.sh \
+  -o /tmp/setup-managed-repo.sh
+
+bash /tmp/setup-managed-repo.sh
+```
+
+Docker Compose プロファイルでは、ウィザードが次を自動化します。
+
+- 対象 GitHub リポジトリと書き込み権限の確認
+- 専用オンボーディングブランチの作成
+- ADOB の完全な Commit SHA の解決と固定
+- CI、デプロイ、診断、ロールバック、状態公開 Workflow の生成
+- 制限付きプロジェクトアダプタースクリプトの生成
+- GitHub Actions Variables の設定と、ファイルからの GHS Secrets 登録
+- ADOB サーバーレジストリ用 `.adob-project.json` の生成
+- Commit、Push、Draft Pull Request の作成
+
+`FORCE=true` を明示しない限り、既存の同名 Workflow やスクリプトを上書きしません。マージ前に Draft PR で永続データ除外とヘルスチェックを確認してください。
+
+Token 権限、Variables/Secrets の一覧、Actions 設定、ブランチ保護、初回検証順序、トラブルシューティングは [GitHub 詳細設定](docs/ja-JP/GITHUB_SETUP.md)を参照してください。
+
 ## ローカル開発実行
 
 ```bash
@@ -204,6 +233,7 @@ example を Commit <SHA> に戻す準備をしてください。アプリケー�
 | トピック | English | 简体中文 | 日本語 |
 |---|---|---|---|
 | 利用方法、フロー、例 | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
+| GitHub 詳細設定 | [Open](docs/GITHUB_SETUP.md) | [打开](docs/zh-CN/GITHUB_SETUP.md) | [開く](docs/ja-JP/GITHUB_SETUP.md) |
 | デプロイモード | [Open](docs/DEPLOYMENT_MODES.md) | [打开](docs/zh-CN/DEPLOYMENT_MODES.md) | [開く](docs/ja-JP/DEPLOYMENT_MODES.md) |
 | プロジェクトとサーバー導入 | [Open](docs/ONBOARDING.md) | [打开](docs/zh-CN/ONBOARDING.md) | [開く](docs/ja-JP/ONBOARDING.md) |
 | GHS SSH デプロイ | [Open](docs/SSH_TRANSPORT.md) | [打开](docs/zh-CN/SSH_TRANSPORT.md) | [開く](docs/ja-JP/SSH_TRANSPORT.md) |
@@ -216,12 +246,14 @@ example を Commit <SHA> に戻す準備をしてください。アプリケー�
 ```text
 .codex-plugin/plugin.json                 エージェントパッケージ情報
 .mcp.json                                 ローカル MCP 起動設定
-.github/workflows/deploy-via-ssh.yml      再利用可能な GHS Workflow
+.github/workflows/*-via-ssh.yml           再利用可能な GHS 本番 Workflow
 skills/autodevops/                        エージェントの操作規則とプロンプト
 mcp-server/                               Streamable HTTP/stdio MCP コントローラー
 installer/bootstrap-server.sh             サーバーワンコマンド設定スクリプト
+installer/setup-managed-repo.sh           GitHub プロジェクト接続ウィザード
 installer/install-runner.sh               VSR セルフホスト Runner インストーラー
 installer/install-ssh-deploy.sh           GHS デプロイユーザーインストーラー
+templates/managed-repo/                   自動生成 Workflow とアダプターテンプレート
 examples/projects.json                    プロジェクトレジストリ例
 docs/                                     構成、導入、セキュリティ、利用文書
 ```
