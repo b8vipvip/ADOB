@@ -1,0 +1,32 @@
+name: Roll back production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type ROLLBACK exactly
+        required: true
+        type: string
+      release_sha:
+        description: Target release SHA; blank selects the previous retained release
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    runs-on: ${{ fromJSON(vars.ADOB_RUNNER_LABELS_JSON) }}
+    timeout-minutes: 45
+    steps:
+      - name: Roll back retained release
+        env:
+          ADOB_MODE: VSR
+          DEPLOY_DIR: ${{ vars.DEPLOY_PATH }}
+        run: bash "${DEPLOY_DIR}/scripts/rollback-production.sh" "${{ inputs.confirm }}" "${{ inputs.release_sha }}"
+      - name: Check public health endpoint
+        if: vars.PUBLIC_HEALTH_URL != ''
+        env:
+          PUBLIC_HEALTH_URL: ${{ vars.PUBLIC_HEALTH_URL }}
+        run: curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors --max-time 20 "${PUBLIC_HEALTH_URL}" >/dev/null
