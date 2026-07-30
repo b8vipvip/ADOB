@@ -6,6 +6,7 @@
     "productionBranch": "main",
     "statusBranch": "ops-status",
     "statusPath": "status/status.json",
+    "deploymentMode": "GHS",
     "workflows": {
       "deploy": "deploy-production.yml",
       "diagnose": "diagnose-production.yml",
@@ -13,12 +14,13 @@
     }
   },
   {
-    "id": "example-api",
-    "name": "Example API",
-    "repo": "owner/example-api",
+    "id": "example-vps-app",
+    "name": "Example VPS App",
+    "repo": "owner/example-vps-app",
     "productionBranch": "main",
     "statusBranch": "ops-status",
     "statusPath": "status/status.json",
+    "deploymentMode": "VSR",
     "workflows": {
       "deploy": "deploy-production.yml",
       "diagnose": "diagnose-production.yml",
