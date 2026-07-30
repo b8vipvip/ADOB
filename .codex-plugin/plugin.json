@@ -1,15 +1,19 @@
 {
   "name": "autodevops-bridge",
   "version": "0.2.0",
-  "description": "Reusable GitHub workflow automation with explicit VSR and GHS production deployment modes.",
+  "description": "GPT-GitHub-VPS automated development agent for auditable coding, CI, deployment, diagnostics, and rollback workflows.",
   "author": {
     "name": "b8vipvip",
     "url": "https://github.com/b8vipvip"
   },
   "homepage": "https://github.com/b8vipvip/ADOB",
   "repository": "https://github.com/b8vipvip/ADOB",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
+    "gpt-agent",
+    "github",
+    "vps",
+    "automated-development",
     "devops",
     "github-actions",
     "self-hosted-runner",
@@ -22,19 +26,19 @@
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "AutoDevOps Bridge",
-    "shortDescription": "Safely deploy projects with VSR or GHS",
-    "longDescription": "Manage self-hosted projects through allow-listed GitHub workflows. VSR runs workflows on a VPS Self-hosted Runner; GHS deploys from a GitHub-hosted Runner through pinned SSH and rsync.",
+    "displayName": "GPT GitHub VPS Agent",
+    "shortDescription": "Automate development from GPT to GitHub and VPS",
+    "longDescription": "Connect GPT, GitHub, and VPS infrastructure through bounded MCP tools and auditable workflows. Inspect projects, develop through branches and pull requests, run CI, deploy with VSR or GHS, verify production, collect sanitized diagnostics, and perform confirmed rollback without exposing unrestricted shell access to the model.",
     "developerName": "b8vipvip",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/b8vipvip/ADOB",
     "defaultPrompt": [
-      "List my projects and show whether each one uses VSR or GHS.",
-      "Deploy the latest tested main release using the project's configured VSR or GHS mode.",
-      "Deploy the sumeme project using GHS mode.",
-      "Diagnose the latest failed deployment and state the configured ADOB mode.",
-      "Prepare a safe rollback and identify whether execution will use VSR or GHS."
+      "Inspect my registered projects, recent CI, production health, deployed SHA, and configured VSR or GHS mode.",
+      "Implement this requirement on a branch, add tests, run CI, review the diff, and open a pull request without changing production.",
+      "Deploy the reviewed main branch to the VPS using the project's configured VSR or GHS mode, then verify the deployed SHA and health.",
+      "Diagnose the latest failed deployment using only sanitized bounded diagnostics and propose a forward fix.",
+      "Prepare a rollback, explain the application and database risks, and wait for the literal ROLLBACK confirmation."
     ]
   }
 }
