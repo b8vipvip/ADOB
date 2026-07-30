@@ -8,6 +8,42 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
+const DeploymentModeSchema = z.enum(["VSR", "GHS"]);
+type DeploymentMode = z.infer<typeof DeploymentModeSchema>;
+
+const DEPLOYMENT_MODES: Record<
+  DeploymentMode,
+  {
+    code: DeploymentMode;
+    name: string;
+    summary: string;
+    executionPlane: string;
+    connection: string;
+    bestFor: string;
+  }
+> = {
+  VSR: {
+    code: "VSR",
+    name: "VPS Self-hosted Runner",
+    summary:
+      "GitHub Actions executes the allow-listed project workflow directly on a persistent self-hosted Runner installed on the VPS.",
+    executionPlane: "VPS-hosted GitHub Runner",
+    connection: "No deployment SSH hop; the workflow already runs on the VPS.",
+    bestFor:
+      "Projects that keep a trusted persistent Runner online and need direct deployment, diagnostics, status, and rollback jobs.",
+  },
+  GHS: {
+    code: "GHS",
+    name: "GitHub-hosted SSH",
+    summary:
+      "A GitHub-hosted Runner checks out the exact tested revision, then uses pinned-host-key SSH and rsync to stage and deploy it on the VPS.",
+    executionPlane: "GitHub-hosted Runner plus VPS deployment script",
+    connection: "Pinned SSH/rsync from GitHub Actions to a dedicated VPS deployment account.",
+    bestFor:
+      "Projects that do not want a persistent GitHub Runner on the VPS and can store dedicated SSH credentials in GitHub Actions secrets.",
+  },
+};
+
 const WorkflowSchema = z.object({
   deploy: z.string().min(1),
   diagnose: z.string().min(1),
@@ -21,6 +57,7 @@ const ProjectSchema = z.object({
   productionBranch: z.string().min(1).default("main"),
   statusBranch: z.string().min(1).default("ops-status"),
   statusPath: z.string().min(1).default("status/status.json"),
+  deploymentMode: DeploymentModeSchema.default("VSR"),
   workflows: WorkflowSchema,
 });
 
@@ -65,6 +102,20 @@ function requireProject(projectId: string): Project {
   return project;
 }
 
+function modeDetails(mode: DeploymentMode) {
+  return DEPLOYMENT_MODES[mode];
+}
+
+function resolveDeploymentMode(project: Project, requestedMode?: DeploymentMode): DeploymentMode {
+  const mode = requestedMode ?? project.deploymentMode;
+  if (mode !== project.deploymentMode) {
+    throw new Error(
+      `Deployment mode mismatch for ${project.id}: requested ${mode}, configured ${project.deploymentMode}. Update the server-side project registry before switching modes.`,
+    );
+  }
+  return mode;
+}
+
 async function githubRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!githubToken) {
     throw new Error("GITHUB_TOKEN is not configured on the MCP server");
@@ -76,7 +127,7 @@ async function githubRequest<T>(path: string, init: RequestInit = {}): Promise<T
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${githubToken}`,
       "Content-Type": "application/json",
-      "User-Agent": "autodevops-bridge/0.1.0",
+      "User-Agent": "autodevops-bridge/0.2.0",
       "X-GitHub-Api-Version": "2022-11-28",
       ...(init.headers ?? {}),
     },
@@ -152,13 +203,36 @@ function errorResult(error: unknown) {
 }
 
 function createMcpServer(): McpServer {
-  const server = new McpServer({ name: "autodevops-bridge", version: "0.1.0" });
+  const server = new McpServer({ name: "autodevops-bridge", version: "0.2.0" });
+
+  server.registerTool(
+    "list_deployment_modes",
+    {
+      title: "List ADOB deployment modes",
+      description:
+        "Return the canonical ADOB deployment mode codes. VSR means VPS Self-hosted Runner; GHS means GitHub-hosted SSH. These are deployment execution modes, not MCP stdio/HTTP transports.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () =>
+      textResult({
+        modes: [DEPLOYMENT_MODES.VSR, DEPLOYMENT_MODES.GHS],
+        declarationRule:
+          "Use the exact uppercase code VSR or GHS in project configuration and deployment requests.",
+      }),
+  );
 
   server.registerTool(
     "list_projects",
     {
       title: "List registered projects",
-      description: "List the projects this AutoDevOps Bridge instance is allowed to manage.",
+      description:
+        "List the projects this AutoDevOps Bridge instance is allowed to manage, including each project's configured VSR or GHS deployment mode.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -174,6 +248,8 @@ function createMcpServer(): McpServer {
           name: project.name,
           repo: project.repo,
           productionBranch: project.productionBranch,
+          deploymentMode: project.deploymentMode,
+          deploymentModeName: modeDetails(project.deploymentMode).name,
         })),
       }),
   );
@@ -183,7 +259,7 @@ function createMcpServer(): McpServer {
     {
       title: "Get project status",
       description:
-        "Read the latest sanitized production status snapshot published by a project's self-hosted runner.",
+        "Read the latest sanitized production status snapshot and report whether the project is configured for VSR or GHS deployment.",
       inputSchema: {
         project_id: z.string().describe("Registered project identifier"),
       },
@@ -198,7 +274,11 @@ function createMcpServer(): McpServer {
       try {
         const project = requireProject(project_id);
         const status = await readProjectStatus(project);
-        return textResult({ project: project.id, status });
+        return textResult({
+          project: project.id,
+          deploymentMode: modeDetails(project.deploymentMode),
+          status,
+        });
       } catch (error) {
         return errorResult(error);
       }
@@ -209,7 +289,8 @@ function createMcpServer(): McpServer {
     "get_recent_workflow_runs",
     {
       title: "Get recent workflow runs",
-      description: "Read recent GitHub Actions workflow states for a registered project.",
+      description:
+        "Read recent GitHub Actions workflow states for a registered project and include its configured VSR or GHS deployment mode.",
       inputSchema: {
         project_id: z.string().describe("Registered project identifier"),
         limit: z.number().int().min(1).max(20).default(10),
@@ -225,7 +306,11 @@ function createMcpServer(): McpServer {
       try {
         const project = requireProject(project_id);
         const runs = await recentWorkflowRuns(project, limit);
-        return textResult({ project: project.id, runs });
+        return textResult({
+          project: project.id,
+          deploymentMode: project.deploymentMode,
+          runs,
+        });
       } catch (error) {
         return errorResult(error);
       }
@@ -237,9 +322,12 @@ function createMcpServer(): McpServer {
     {
       title: "Deploy trusted production release",
       description:
-        "Trigger the allow-listed production deployment workflow for a registered project. This does not execute arbitrary commands.",
+        "Trigger the allow-listed production workflow using the project's configured ADOB mode. Declare mode=VSR or mode=GHS explicitly when clarity matters; a mismatched declaration is rejected.",
       inputSchema: {
         project_id: z.string().describe("Registered project identifier"),
+        mode: DeploymentModeSchema.optional().describe(
+          "Canonical ADOB deployment mode: VSR (VPS Self-hosted Runner) or GHS (GitHub-hosted SSH). Defaults to the project registry value.",
+        ),
         ref: z
           .string()
           .optional()
@@ -252,14 +340,16 @@ function createMcpServer(): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ project_id, ref }) => {
+    async ({ project_id, mode, ref }) => {
       try {
         const project = requireProject(project_id);
+        const deploymentMode = resolveDeploymentMode(project, mode);
         const releaseRef = ref?.trim() || project.productionBranch;
         await dispatchWorkflow(project, project.workflows.deploy, releaseRef);
         return textResult({
           accepted: true,
           project: project.id,
+          deploymentMode: modeDetails(deploymentMode),
           workflow: project.workflows.deploy,
           ref: releaseRef,
         });
@@ -274,7 +364,7 @@ function createMcpServer(): McpServer {
     {
       title: "Collect sanitized diagnostics",
       description:
-        "Trigger the allow-listed diagnostics workflow with bounded service and time-window inputs.",
+        "Trigger the allow-listed diagnostics workflow with bounded inputs and report the project's configured VSR or GHS mode.",
       inputSchema: {
         project_id: z.string().describe("Registered project identifier"),
         service: z.string().min(1).max(80),
@@ -299,6 +389,7 @@ function createMcpServer(): McpServer {
         return textResult({
           accepted: true,
           project: project.id,
+          deploymentMode: project.deploymentMode,
           workflow: project.workflows.diagnose,
           inputs: { service, lines, since },
         });
@@ -313,7 +404,7 @@ function createMcpServer(): McpServer {
     {
       title: "Roll back production release",
       description:
-        "Trigger the allow-listed rollback workflow. The literal confirmation value ROLLBACK is required. Database migrations may not be reversed.",
+        "Trigger the allow-listed rollback workflow. The literal confirmation value ROLLBACK is required. The result identifies the configured VSR or GHS mode.",
       inputSchema: {
         project_id: z.string().describe("Registered project identifier"),
         confirm: z.literal("ROLLBACK"),
@@ -340,6 +431,7 @@ function createMcpServer(): McpServer {
         return textResult({
           accepted: true,
           project: project.id,
+          deploymentMode: project.deploymentMode,
           workflow: project.workflows.rollback,
           release_sha: release_sha?.trim() || null,
           warning: "Application rollback may not reverse database migrations.",
@@ -398,7 +490,12 @@ async function startHttp(): Promise<void> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", projects: projects.length, version: "0.1.0" });
+    res.json({
+      status: "ok",
+      projects: projects.length,
+      version: "0.2.0",
+      deploymentModes: ["VSR", "GHS"],
+    });
   });
 
   app.all("/mcp", bearerAuth, async (req, res) => {

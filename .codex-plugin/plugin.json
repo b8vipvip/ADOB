@@ -1,7 +1,7 @@
 {
   "name": "autodevops-bridge",
-  "version": "0.1.0",
-  "description": "Reusable GitHub Runner-based development, deployment, diagnostics, status, and rollback workflows for ChatGPT and Codex.",
+  "version": "0.2.0",
+  "description": "Reusable GitHub workflow automation with explicit VSR and GHS production deployment modes.",
   "author": {
     "name": "b8vipvip",
     "url": "https://github.com/b8vipvip"
@@ -15,23 +15,26 @@
     "self-hosted-runner",
     "deployment",
     "diagnostics",
-    "rollback"
+    "rollback",
+    "vsr",
+    "ghs"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "AutoDevOps Bridge",
-    "shortDescription": "Safely deploy and maintain self-hosted projects",
-    "longDescription": "Connect GitHub repositories to self-hosted runners, inspect sanitized production status, trigger tested deployments, collect diagnostics, and roll back releases without exposing SSH keys or unrestricted shell access to ChatGPT.",
+    "shortDescription": "Safely deploy projects with VSR or GHS",
+    "longDescription": "Manage self-hosted projects through allow-listed GitHub workflows. VSR runs workflows on a VPS Self-hosted Runner; GHS deploys from a GitHub-hosted Runner through pinned SSH and rsync.",
     "developerName": "b8vipvip",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/b8vipvip/ADOB",
     "defaultPrompt": [
-      "Check the current health and deployment state of my project.",
-      "Diagnose the latest failed deployment and explain the likely cause.",
-      "Deploy the latest tested main branch release.",
-      "Prepare a safe rollback to the previous production release."
+      "List my projects and show whether each one uses VSR or GHS.",
+      "Deploy the latest tested main release using the project's configured VSR or GHS mode.",
+      "Deploy the sumeme project using GHS mode.",
+      "Diagnose the latest failed deployment and state the configured ADOB mode.",
+      "Prepare a safe rollback and identify whether execution will use VSR or GHS."
     ]
   }
 }

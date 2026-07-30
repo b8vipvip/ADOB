@@ -1,38 +1,55 @@
-# GitHub-hosted Runner SSH transport
+# GHS — GitHub-hosted SSH deployment
 
-ADOB supports two production execution transports:
+`GHS` is the canonical ADOB code for **GitHub-hosted SSH**.
 
 ```text
-A. self-hosted
-GitHub Actions → VPS-hosted Runner → project scripts
-
-B. github-hosted-ssh
-GitHub-hosted Runner → pinned SSH + rsync → VPS project scripts
+GHS
+GitHub-hosted Runner
+      ↓ exact tested revision
+Pinned SSH + rsync
+      ↓
+VPS allow-listed project deployment script
 ```
 
-The SSH transport is implemented by the reusable workflow:
+The alternative mode is `VSR` — VPS Self-hosted Runner. See `DEPLOYMENT_MODES.md` for the full comparison.
+
+## Reusable workflow
+
+GHS is implemented by:
 
 ```text
 b8vipvip/ADOB/.github/workflows/deploy-via-ssh.yml
 ```
 
-It checks out the caller repository at the exact tested SHA, uploads the source tree to a staging directory outside production, and runs the caller repository's allow-listed deployment script with:
+The workflow checks out the caller repository at the exact tested SHA, uploads the source tree to a staging directory outside production, and runs the caller repository's allow-listed deployment script with:
 
 ```text
+ADOB_MODE=GHS
 DEPLOY_DIR=<production path>
 SOURCE_DIR=<uploaded source path>
 ```
 
-The project deployment script remains responsible for Docker Compose operations, local health checks, snapshots, and rollback.
+The project deployment script remains responsible for Docker Compose operations, local health checks, snapshots and rollback.
+
+## Required mode declaration
+
+Callers should explicitly pass:
+
+```yaml
+with:
+  adob_mode: GHS
+```
+
+The reusable workflow accepts only `GHS`. A different value is rejected before checkout or SSH setup.
 
 ## Security rules
 
-- The SSH private key belongs in the managed project's GitHub Actions secrets, never in ADOB source, ChatGPT, Codex, issues, logs, or the MCP server.
+- The SSH private key belongs in the managed project's GitHub Actions secrets, never in ADOB source, ChatGPT, Codex, issues, logs or the MCP server.
 - Use a dedicated non-root deployment account. Docker group membership is production-level privilege and must be treated accordingly.
-- Pin the VPS host key using an exact `known_hosts` line copied from `/etc/ssh/ssh_host_ed25519_key.pub` on the VPS.
+- Pin the VPS host key using an exact `known_hosts` line copied from the VPS.
 - The workflow uses `StrictHostKeyChecking=yes`; it never falls back to `ssh-keyscan` or disables verification.
 - The caller supplies a repository-relative deployment script. ADOB does not accept an arbitrary remote command.
-- `.env`, databases, object storage, volumes, and backups stay on the VPS and are excluded from rsync.
+- `.env`, databases, object storage, volumes and backups stay on the VPS and are excluded from rsync.
 - Pin callers to an ADOB commit SHA or reviewed release tag instead of an unpinned branch.
 
 ## VPS bootstrap
@@ -59,7 +76,7 @@ SSH_PORT="22" \
 bash installer/install-ssh-deploy.sh
 ```
 
-For an existing self-hosted Runner deployment, reusing its dedicated service account during migration avoids changing ownership of the production directory. Do not stop the old Runner until the first SSH deployment and status verification both succeed.
+For an existing VSR deployment, reusing its dedicated service account during migration avoids changing ownership of the production directory. Do not stop the VSR Runner until the first GHS deployment and status verification both succeed.
 
 The installer prints the exact host-key line to save as a GitHub secret. Save the complete private key as a separate GitHub secret, then remove the administrative copy after the first successful deployment.
 
@@ -75,14 +92,15 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/test.sh
 
-  deploy-production-ssh:
+  deploy-production-ghs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      vars.DEPLOY_TRANSPORT == 'github-hosted-ssh'
+      vars.ADOB_MODE == 'GHS'
     needs: [test]
     uses: b8vipvip/ADOB/.github/workflows/deploy-via-ssh.yml@<PINNED_ADOB_SHA>
     with:
+      adob_mode: GHS
       project_name: example
       ssh_host: ${{ vars.VPS_HOST }}
       ssh_port: ${{ vars.VPS_PORT || '22' }}
@@ -95,19 +113,21 @@ jobs:
       ssh_host_key: ${{ secrets.SSH_HOST_KEY }}
 ```
 
-Keep the old self-hosted job behind the opposite condition during migration:
+Keep a VSR job behind the opposite condition during migration:
 
 ```yaml
-if: vars.DEPLOY_TRANSPORT != 'github-hosted-ssh'
+if: vars.ADOB_MODE != 'GHS'
+env:
+  ADOB_MODE: VSR
 ```
 
-After SSH deployment is verified, set:
+After GHS deployment is verified, set:
 
 ```text
-DEPLOY_TRANSPORT=github-hosted-ssh
+ADOB_MODE=GHS
 ```
 
-The old Runner can then be stopped and later unregistered. Keeping the fallback workflow in source is useful for emergency recovery, but it should remain disabled by the transport variable.
+The old VSR Runner can then be stopped and later unregistered. Keeping the fallback workflow in source may be useful for recovery, but it must remain disabled and must not silently execute after a GHS failure.
 
 ## Required managed-project contract
 
@@ -122,4 +142,4 @@ The caller deployment script must:
 7. record bounded, sanitized deployment history;
 8. attempt a safe code rollback when possible.
 
-ADOB's SSH workflow additionally checks the optional public health URL after the project script succeeds.
+ADOB's GHS workflow additionally checks the optional public health URL after the project script succeeds.
