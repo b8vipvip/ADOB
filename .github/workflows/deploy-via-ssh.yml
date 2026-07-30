@@ -58,7 +58,9 @@ jobs:
   deploy:
     name: Deploy ${{ inputs.project_name }} via SSH
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Cold Docker builds on bandwidth-constrained VPS hosts can legitimately exceed one hour.
+    # The project deployment script still owns its own bounded locks and health checks.
+    timeout-minutes: 120
 
     steps:
       - name: Validate reusable-workflow inputs
