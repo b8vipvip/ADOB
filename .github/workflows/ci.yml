@@ -28,6 +28,23 @@ jobs:
       - name: Validate plugin manifest
         working-directory: .
         run: node -e "JSON.parse(require('fs').readFileSync('.codex-plugin/plugin.json','utf8')); JSON.parse(require('fs').readFileSync('.mcp.json','utf8'));"
+      - name: Validate VSR and GHS project declarations
+        working-directory: .
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const projects = JSON.parse(fs.readFileSync('examples/projects.json', 'utf8'));
+          const allowed = new Set(['VSR', 'GHS']);
+          for (const project of projects) {
+            if (!allowed.has(project.deploymentMode)) {
+              throw new Error(`Invalid deploymentMode for ${project.id}: ${project.deploymentMode}`);
+            }
+          }
+          NODE
+          grep -Fq 'adob_mode:' .github/workflows/deploy-via-ssh.yml
+          grep -Fq 'requires adob_mode=GHS' .github/workflows/deploy-via-ssh.yml
+          grep -Fq 'VSR — VPS Self-hosted Runner' docs/DEPLOYMENT_MODES.md
+          grep -Fq 'GHS — GitHub-hosted SSH' docs/DEPLOYMENT_MODES.md
       - name: Validate installer syntax
         working-directory: .
         run: bash -n installer/*.sh
