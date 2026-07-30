@@ -1,0 +1,177 @@
+name: ADOB GHS publish status via SSH
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+      ssh_host:
+        required: true
+        type: string
+      ssh_port:
+        required: false
+        default: "22"
+        type: string
+      ssh_user:
+        required: true
+        type: string
+      deploy_path:
+        required: true
+        type: string
+      status_branch:
+        required: false
+        default: ops-status
+        type: string
+      status_path:
+        required: false
+        default: status/status.json
+        type: string
+    secrets:
+      ssh_private_key:
+        required: true
+      ssh_host_key:
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: adob-${{ inputs.project_name }}-status
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate status inputs
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ inputs.project_name }}
+          SSH_HOST: ${{ inputs.ssh_host }}
+          SSH_PORT: ${{ inputs.ssh_port }}
+          SSH_USER: ${{ inputs.ssh_user }}
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          STATUS_BRANCH: ${{ inputs.status_branch }}
+          STATUS_PATH: ${{ inputs.status_path }}
+        run: |
+          set -euo pipefail
+          [[ "${PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]
+          [[ "${SSH_HOST}" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "${SSH_PORT}" =~ ^[0-9]{1,5}$ ]] && (( SSH_PORT >= 1 && SSH_PORT <= 65535 ))
+          [[ "${SSH_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "${DEPLOY_PATH}" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "${STATUS_BRANCH}" =~ ^[A-Za-z0-9._/-]+$ && "${STATUS_BRANCH}" != *..* ]]
+          [[ "${STATUS_PATH}" =~ ^[A-Za-z0-9._/-]+$ && "${STATUS_PATH}" != /* && "${STATUS_PATH}" != *..* ]]
+
+      - name: Configure pinned SSH trust
+        shell: bash
+        env:
+          SSH_HOST: ${{ inputs.ssh_host }}
+          SSH_PORT: ${{ inputs.ssh_port }}
+          SSH_USER: ${{ inputs.ssh_user }}
+          SSH_PRIVATE_KEY: ${{ secrets.ssh_private_key }}
+          SSH_HOST_KEY: ${{ secrets.ssh_host_key }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${HOME}/.ssh"
+          printf '%s\n' "${SSH_PRIVATE_KEY}" | tr -d '\r' > "${HOME}/.ssh/adob_deploy"
+          printf '%s\n' "${SSH_HOST_KEY}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/adob_deploy" "${HOME}/.ssh/known_hosts"
+          cat > "${HOME}/.ssh/config" <<EOF
+          Host adob-production
+            HostName ${SSH_HOST}
+            Port ${SSH_PORT}
+            User ${SSH_USER}
+            IdentityFile ${HOME}/.ssh/adob_deploy
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ${HOME}/.ssh/known_hosts
+            ConnectTimeout 20
+          EOF
+          chmod 600 "${HOME}/.ssh/config"
+
+      - name: Read sanitized status JSON
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          PROJECT_NAME: ${{ inputs.project_name }}
+        run: |
+          set -euo pipefail
+          ssh adob-production \
+            "ADOB_MODE='GHS' ADOB_PROJECT_ID='${PROJECT_NAME}' DEPLOY_DIR='${DEPLOY_PATH}' bash '${DEPLOY_PATH}/scripts/publish-status.sh'" \
+            > /tmp/adob-status.json
+          jq -e 'type == "object"' /tmp/adob-status.json >/dev/null
+          test "$(wc -c < /tmp/adob-status.json)" -le 65536
+
+      - name: Publish status branch
+        uses: actions/github-script@v7
+        env:
+          STATUS_BRANCH: ${{ inputs.status_branch }}
+          STATUS_PATH: ${{ inputs.status_path }}
+          PROJECT_NAME: ${{ inputs.project_name }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const status = fs.readFileSync('/tmp/adob-status.json', 'utf8');
+            JSON.parse(status);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = process.env.STATUS_BRANCH;
+            const statusPath = process.env.STATUS_PATH;
+            const markdownPath = statusPath.replace(/\.json$/, '.md');
+            const markdown = `# ${process.env.PROJECT_NAME} production status\n\nUpdated: ${new Date().toISOString()}\n\n\`\`\`json\n${status.trim()}\n\`\`\`\n`;
+
+            async function blob(content) {
+              return (await github.rest.git.createBlob({
+                owner, repo, content: Buffer.from(content).toString('base64'), encoding: 'base64'
+              })).data.sha;
+            }
+
+            let currentCommit = null;
+            try {
+              const ref = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+              currentCommit = ref.data.object.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            const statusBlob = await blob(status);
+            const markdownBlob = await blob(markdown);
+            const treeEntries = [
+              { path: statusPath, mode: '100644', type: 'blob', sha: statusBlob },
+              { path: markdownPath, mode: '100644', type: 'blob', sha: markdownBlob }
+            ];
+
+            let tree;
+            let parents = [];
+            if (currentCommit) {
+              const commit = await github.rest.git.getCommit({ owner, repo, commit_sha: currentCommit });
+              tree = await github.rest.git.createTree({
+                owner, repo, base_tree: commit.data.tree.sha, tree: treeEntries
+              });
+              parents = [currentCommit];
+            } else {
+              tree = await github.rest.git.createTree({ owner, repo, tree: treeEntries });
+            }
+
+            const commit = await github.rest.git.createCommit({
+              owner,
+              repo,
+              message: `status: update ${process.env.PROJECT_NAME}`,
+              tree: tree.data.sha,
+              parents
+            });
+
+            if (currentCommit) {
+              await github.rest.git.updateRef({
+                owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false
+              });
+            } else {
+              await github.rest.git.createRef({
+                owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha
+              });
+            }
