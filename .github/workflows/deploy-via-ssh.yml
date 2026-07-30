@@ -1,8 +1,13 @@
-name: ADOB deploy via SSH
+name: ADOB GHS deploy via SSH
 
 on:
   workflow_call:
     inputs:
+      adob_mode:
+        description: Canonical ADOB deployment mode. This reusable SSH workflow accepts only GHS.
+        required: false
+        default: GHS
+        type: string
       project_name:
         description: Stable lowercase project identifier used for concurrency and staging paths.
         required: true
@@ -56,7 +61,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy ${{ inputs.project_name }} via SSH
+    name: Deploy ${{ inputs.project_name }} using GHS
     runs-on: ubuntu-latest
     # Cold Docker builds on bandwidth-constrained VPS hosts can legitimately exceed one hour.
     # The project deployment script still owns its own bounded locks and health checks.
@@ -66,6 +71,7 @@ jobs:
       - name: Validate reusable-workflow inputs
         shell: bash
         env:
+          ADOB_MODE: ${{ inputs.adob_mode }}
           PROJECT_NAME: ${{ inputs.project_name }}
           SSH_HOST: ${{ inputs.ssh_host }}
           SSH_PORT: ${{ inputs.ssh_port }}
@@ -78,6 +84,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          [[ "${ADOB_MODE}" == "GHS" ]] || {
+            echo "::error::deploy-via-ssh.yml is the GHS workflow and requires adob_mode=GHS"
+            exit 64
+          }
           [[ "${PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || {
             echo "::error::project_name must be lowercase letters, digits, and hyphens"
             exit 64
@@ -205,7 +215,7 @@ jobs:
           ssh adob-production \
             "test -f '${DEPLOY_PATH}/.env' && \
              chmod +x '${remote_script}' && \
-             DEPLOY_DIR='${DEPLOY_PATH}' SOURCE_DIR='${remote_source}' \
+             ADOB_MODE='GHS' DEPLOY_DIR='${DEPLOY_PATH}' SOURCE_DIR='${remote_source}' \
              bash '${remote_script}' '${RELEASE_SHA}'"
 
       - name: Check public health endpoint
@@ -250,6 +260,7 @@ jobs:
           DEPLOY_PATH: ${{ inputs.deploy_path }}
           RELEASE_SHA: ${{ github.sha }}
         run: |
+          echo "ADOB mode: GHS"
           echo "Expected release: ${RELEASE_SHA}"
           ssh adob-production \
             "printf 'Current release: '; \
