@@ -1,0 +1,45 @@
+name: Roll back production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type ROLLBACK exactly
+        required: true
+        type: string
+      release_sha:
+        description: Target release SHA; blank selects the previous retained release
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    uses: b8vipvip/ADOB/.github/workflows/rollback-via-ssh.yml@__ADOB_SHA__
+    with:
+      project_name: ${{ vars.ADOB_PROJECT_ID }}
+      ssh_host: ${{ vars.VPS_HOST }}
+      ssh_port: ${{ vars.VPS_PORT || '22' }}
+      ssh_user: ${{ vars.VPS_USER }}
+      deploy_path: ${{ vars.DEPLOY_PATH }}
+      confirm: ${{ inputs.confirm }}
+      release_sha: ${{ inputs.release_sha || '' }}
+      public_health_url: ${{ vars.PUBLIC_HEALTH_URL || '' }}
+    secrets:
+      ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      ssh_host_key: ${{ secrets.SSH_HOST_KEY }}
+
+  publish-status:
+    needs: rollback
+    uses: b8vipvip/ADOB/.github/workflows/publish-status-via-ssh.yml@__ADOB_SHA__
+    with:
+      project_name: ${{ vars.ADOB_PROJECT_ID }}
+      ssh_host: ${{ vars.VPS_HOST }}
+      ssh_port: ${{ vars.VPS_PORT || '22' }}
+      ssh_user: ${{ vars.VPS_USER }}
+      deploy_path: ${{ vars.DEPLOY_PATH }}
+    secrets:
+      ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      ssh_host_key: ${{ secrets.SSH_HOST_KEY }}

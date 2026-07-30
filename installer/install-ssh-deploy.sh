@@ -46,15 +46,21 @@ docker compose version >/dev/null 2>&1 || {
   exit 69
 }
 
-if ! command -v rsync >/dev/null 2>&1; then
+missing_packages=()
+command -v rsync >/dev/null 2>&1 || missing_packages+=(rsync)
+command -v jq >/dev/null 2>&1 || missing_packages+=(jq)
+command -v flock >/dev/null 2>&1 || missing_packages+=(util-linux)
+command -v free >/dev/null 2>&1 || missing_packages+=(procps)
+if (( ${#missing_packages[@]} > 0 )); then
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y rsync
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
   else
-    echo "Install rsync before continuing" >&2
+    echo "Install rsync, jq, util-linux, and procps before continuing" >&2
     exit 69
   fi
 fi
+for command in rsync jq flock free; do need "${command}"; done
 
 if ! id "${DEPLOY_USER}" >/dev/null 2>&1; then
   if [[ "${CREATE_USER}" != "true" ]]; then
@@ -114,6 +120,7 @@ ADOB SSH deployment user is ready.
 Deploy user: ${DEPLOY_USER}
 Deploy dir:  ${DEPLOY_DIR}
 Staging dir: ${DEPLOY_DIR}.adob/incoming
+Runtime tools: rsync, jq, flock, free, Docker Compose
 EOF
 
 if [[ -n "${SSH_HOST}" && -f /etc/ssh/ssh_host_ed25519_key.pub ]]; then

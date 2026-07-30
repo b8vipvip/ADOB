@@ -12,9 +12,10 @@ fi
 
 RUNNER_USER="${RUNNER_USER:-autodevops-runner}"
 RUNNER_NAME="${RUNNER_NAME:-$(hostname)-autodevops}"
-RUNNER_LABELS="${RUNNER_LABELS:-autodevops-production}"
+RUNNER_LABELS="${RUNNER_LABELS:-production,autodevops-production}"
 RUNNER_HOME="${RUNNER_HOME:-/home/${RUNNER_USER}/actions-runner}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/${GITHUB_REPOSITORY##*/}}"
+REQUIRE_DOCKER_COMPOSE="${REQUIRE_DOCKER_COMPOSE:-true}"
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -23,9 +24,31 @@ need() {
   }
 }
 
-for command in curl sha256sum tar git rsync systemctl; do
-  need "${command}"
-done
+for command in curl sha256sum tar git systemctl sudo; do need "${command}"; done
+
+missing_packages=()
+command -v rsync >/dev/null 2>&1 || missing_packages+=(rsync)
+command -v jq >/dev/null 2>&1 || missing_packages+=(jq)
+command -v flock >/dev/null 2>&1 || missing_packages+=(util-linux)
+command -v free >/dev/null 2>&1 || missing_packages+=(procps)
+if (( ${#missing_packages[@]} > 0 )); then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
+  else
+    echo "Install rsync, jq, util-linux, and procps before continuing" >&2
+    exit 1
+  fi
+fi
+for command in rsync jq flock free; do need "${command}"; done
+
+if [[ "${REQUIRE_DOCKER_COMPOSE}" == "true" ]]; then
+  need docker
+  docker compose version >/dev/null 2>&1 || {
+    echo "The Docker Compose plugin is required for the default managed-project template" >&2
+    exit 1
+  }
+fi
 
 if ! id "${RUNNER_USER}" >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash "${RUNNER_USER}"
@@ -37,6 +60,7 @@ fi
 
 install -d -o "${RUNNER_USER}" -g "${RUNNER_USER}" -m 750 "${RUNNER_HOME}"
 install -d -o "${RUNNER_USER}" -g "${RUNNER_USER}" -m 750 "${DEPLOY_DIR}"
+install -d -o "${RUNNER_USER}" -g "${RUNNER_USER}" -m 750 "${DEPLOY_DIR}.adob/incoming"
 
 archive="$(mktemp --suffix=.tar.gz)"
 cleanup() {
@@ -89,6 +113,10 @@ Repository: ${GITHUB_REPOSITORY}
 Runner:     ${RUNNER_NAME}
 Labels:     ${RUNNER_LABELS}
 Deploy dir: ${DEPLOY_DIR}
+Runtime tools: rsync, jq, flock, free
+
+Use this repository variable with the default wizard labels:
+ADOB_RUNNER_LABELS_JSON=["self-hosted","linux","x64","production"]
 
 Verify the runner is Online/Idle in:
 https://github.com/${GITHUB_REPOSITORY}/settings/actions/runners

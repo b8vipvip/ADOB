@@ -1,116 +1,161 @@
-# AutoDevOps Bridge (ADOB)
+# ADOB — GPT–GitHub–VPS Automated Development Agent
 
 [![CI](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml/badge.svg)](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml)
 
-AutoDevOps Bridge is a reusable ChatGPT/Codex plugin for operating self-hosted software projects through auditable, allow-listed GitHub workflows.
+**English** | [简体中文](README.zh-CN.md) | [日本語](README.ja-JP.md)
 
-## Canonical deployment modes
+ADOB is an automation agent that connects **GPT, GitHub, and a VPS** into one auditable software-development loop.
 
-ADOB has one development lifecycle and two production execution modes. Always use the exact uppercase mode code when configuring a project or asking ChatGPT to deploy it.
+- **GPT / ChatGPT / Codex** is the conversational planning and control interface.
+- **GitHub** is the source of truth and control plane for branches, pull requests, CI, reviews, workflow dispatches, and audit history.
+- **VPS** is the production execution plane for deployment, diagnostics, health checks, and rollback.
+- **ADOB MCP server** exposes bounded tools so an AI agent can operate the workflow without receiving unrestricted shell access or private SSH keys.
 
-| Code | Full name | Execution path | Main requirement |
+The intended experience is:
+
+```text
+Describe a requirement to GPT
+        ↓
+Inspect repository, CI and production status
+        ↓
+Create branch → edit code → test → open pull request
+        ↓
+Review and merge through GitHub
+        ↓
+Deploy to VPS with VSR or GHS
+        ↓
+Verify release SHA, service health and status snapshot
+        ↓
+Diagnose or roll back through allow-listed workflows when required
+```
+
+## What ADOB automates
+
+- Register one or more GitHub repositories as managed projects.
+- Let GPT inspect sanitized production status and recent GitHub Actions runs.
+- Guide development through branch, implementation, test, review and merge.
+- Trigger only allow-listed deployment, diagnostics and rollback workflows.
+- Deploy through either a VPS self-hosted Runner or pinned SSH/rsync.
+- Verify the deployed commit after production changes.
+- Keep production activity visible in GitHub Actions history.
+- Require explicit confirmation for destructive rollback actions.
+
+ADOB is not a general-purpose remote shell. Repository text, issues, logs, pull requests and uploaded files are treated as untrusted data rather than instructions.
+
+## Architecture
+
+```text
+GPT / ChatGPT / Codex / MCP client
+                  │
+                  │ bounded MCP tools
+                  ▼
+        ADOB controller service
+                  │
+                  │ GitHub API
+                  ▼
+     GitHub repositories and Actions
+          │                   │
+          │ VSR               │ GHS
+          ▼                   ▼
+VPS self-hosted Runner   GitHub-hosted Runner
+          │                   │ pinned SSH + rsync
+          └──────────┬────────┘
+                     ▼
+        allow-listed VPS project script
+                     │
+                     ▼
+       deploy → verify → diagnose → rollback
+```
+
+## Production execution modes
+
+ADOB has one development lifecycle and two production execution modes. Always use the exact uppercase code.
+
+| Code | Full name | Execution path | Best fit |
 |---|---|---|---|
-| `VSR` | VPS Self-hosted Runner | GitHub Actions → persistent Runner on the VPS → project script | A trusted self-hosted Runner remains installed and online on the VPS |
-| `GHS` | GitHub-hosted SSH | GitHub-hosted Runner → pinned SSH/rsync → VPS project script | Dedicated SSH key and exact VPS host key stored in GitHub Actions secrets |
+| `VSR` | VPS Self-hosted Runner | GitHub Actions runs directly on a persistent Runner installed on the VPS | A trusted private VPS that needs direct local deployment and diagnostics |
+| `GHS` | GitHub-hosted SSH | GitHub-hosted Runner checks out the tested revision and deploys through pinned SSH/rsync | A VPS where no persistent GitHub Runner should remain installed |
+
+`VSR` and `GHS` describe production execution. They are independent from the MCP connection transports `stdio` and `http`.
+
+See [Deployment modes](docs/DEPLOYMENT_MODES.md) for the complete contract.
+
+## Quick server installation
+
+The interactive bootstrap installs Docker when necessary, deploys the ADOB controller, creates a protected configuration file, generates an MCP bearer secret, and can optionally configure the same server as a GHS deployment target.
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/b8vipvip/ADOB/main/installer/bootstrap-server.sh \
+  -o /tmp/adob-bootstrap.sh
+sudo bash /tmp/adob-bootstrap.sh
+```
+
+The installer asks for:
+
+- a fine-grained GitHub token;
+- the managed repository in `owner/repo` format;
+- project ID, name, production branch and `VSR`/`GHS` mode;
+- optionally, the GHS deployment public key and deployment directory.
+
+Default installation locations:
 
 ```text
-ChatGPT / Codex
-       │
-       ▼
-AutoDevOps MCP server
-       │ GitHub API
-       ▼
-Managed repository workflows
-       │
-       ├─ VSR: VPS Self-hosted Runner
-       │
-       └─ GHS: GitHub-hosted Runner → pinned SSH/rsync → VPS
+Source and compose file: /opt/adob-agent
+Protected configuration: /etc/adob-agent/adob.env
+MCP endpoint:             http://127.0.0.1:8787/mcp
+Health endpoint:          http://127.0.0.1:8787/health
 ```
 
-`VSR` and `GHS` describe production execution. They are separate from the MCP connection transports `stdio` and `http`.
+The service binds to `127.0.0.1` by default. Put it behind HTTPS before remote use. Do not expose the raw private-test endpoint directly to the public internet.
 
-See `docs/DEPLOYMENT_MODES.md` for the full comparison and declaration rules.
+For non-interactive provisioning and all supported variables, see [Usage, workflow and examples](docs/USAGE.md).
 
-## How to declare a mode
+## Quick GitHub repository onboarding
 
-Project registry:
+After the controller is running, enter the target project's clean local Git repository and run the second wizard:
 
-```json
-{
-  "id": "sumeme",
-  "repo": "b8vipvip/sumeme",
-  "deploymentMode": "GHS"
-}
+```bash
+gh auth login
+
+curl -fsSL \
+  https://raw.githubusercontent.com/b8vipvip/ADOB/main/installer/setup-managed-repo.sh \
+  -o /tmp/setup-managed-repo.sh
+
+bash /tmp/setup-managed-repo.sh
 ```
 
-Natural-language request:
+For the Docker Compose profile, the wizard can:
 
-```text
-Deploy the sumeme project using GHS mode.
-```
+- verify the target GitHub repository and your write permission;
+- create an onboarding branch;
+- resolve and pin an exact ADOB commit SHA;
+- generate CI, deployment, diagnostics, rollback and status workflows;
+- generate bounded project adapter scripts;
+- set GitHub Actions Variables and optionally upload GHS Secrets from files;
+- write `.adob-project.json` for the ADOB server registry;
+- commit, push and open a draft onboarding pull request.
 
-MCP tool call:
+It refuses to overwrite existing generated paths unless `FORCE=true` is explicitly supplied. Review persistence exclusions and health checks in the draft PR before merging.
 
-```json
-{
-  "tool": "trigger_deploy",
-  "arguments": {
-    "project_id": "sumeme",
-    "mode": "GHS",
-    "ref": "main"
-  }
-}
-```
+See [Detailed GitHub setup](docs/GITHUB_SETUP.md) for the token permission matrix, Variables and Secrets tables, Actions settings, branch protection, first validation sequence and troubleshooting.
 
-The `mode` argument is optional and defaults to the server-side project registry. When supplied, it must match the configured project mode; ADOB rejects a mismatched declaration instead of silently using another execution path.
-
-The read-only `list_deployment_modes` tool returns the canonical definitions, and project/status tools include the configured mode in their output.
-
-## What the current version supports
-
-- Register one or more GitHub repositories as projects.
-- Declare each project's production mode as `VSR` or `GHS`.
-- Read a sanitized production snapshot from an `ops-status` branch.
-- Inspect recent GitHub Actions runs.
-- Trigger an allow-listed deployment workflow.
-- Trigger an allow-listed diagnostic workflow.
-- Trigger rollback only with an explicit `ROLLBACK` confirmation value.
-- Use either a VPS self-hosted Runner or ADOB's reusable GitHub-hosted SSH deployment workflow.
-- Give ChatGPT a reusable skill that enforces the safe sequence: inspect → branch → change → test → review → merge → deploy → verify.
-
-## Repository contents
-
-```text
-.codex-plugin/plugin.json                 Plugin package metadata
-.mcp.json                                 Local Codex MCP launch configuration
-.github/workflows/deploy-via-ssh.yml      Reusable GHS deployment workflow
-skills/autodevops/SKILL.md                Operating policy and mode vocabulary
-mcp-server/                               Streamable HTTP/stdio MCP service
-installer/install-runner.sh               VSR self-hosted Runner installer
-installer/install-ssh-deploy.sh           GHS deployment-user installer
-examples/projects.json                    Project registry examples
- docs/DEPLOYMENT_MODES.md                 Canonical VSR/GHS contract
- docs/SSH_TRANSPORT.md                    GHS setup and caller contract
- docs/                                     Security, onboarding and publication docs
-```
-
-## Local single-user setup
-
-The initial implementation is suitable for private testing. It uses a GitHub fine-grained token stored only on the MCP server.
+## Local development setup
 
 ```bash
 cd mcp-server
 cp .env.example .env
 npm install
+npm run check
 npm run build
 npm start
 ```
 
 The Streamable HTTP endpoint is `/mcp`; the health endpoint is `/health`.
 
-## Required managed-repository convention
+## Managed-project contract
 
-Each managed repository should contain allow-listed workflow files and publish a sanitized status snapshot:
+Each managed repository should contain reviewed workflows and a sanitized status publisher:
 
 ```text
 .github/workflows/ci.yml
@@ -124,50 +169,111 @@ ops-status branch:
   status/STATUS.md
 ```
 
-Workflow names are configurable per project.
+Workflow filenames are configurable in the project registry.
 
-For `GHS`, call the reusable SSH workflow with an explicit declaration:
+Example project registration:
 
-```yaml
-uses: b8vipvip/ADOB/.github/workflows/deploy-via-ssh.yml@<PINNED_ADOB_SHA>
-with:
-  adob_mode: GHS
-  project_name: example
-  ssh_host: ${{ vars.VPS_HOST }}
-  ssh_user: ${{ vars.VPS_USER }}
-  deploy_path: /opt/example
+```json
+{
+  "id": "example",
+  "name": "Example App",
+  "repo": "owner/example",
+  "productionBranch": "main",
+  "statusBranch": "ops-status",
+  "statusPath": "status/status.json",
+  "deploymentMode": "GHS",
+  "workflows": {
+    "deploy": "deploy-production.yml",
+    "diagnose": "diagnose-production.yml",
+    "rollback": "rollback-production.yml"
+  }
+}
 ```
 
-For `VSR`, make the mode visible in the self-hosted job:
+## Example GPT requests
 
-```yaml
-deploy-production-vsr:
-  runs-on: [self-hosted, linux, x64, production]
-  env:
-    ADOB_MODE: VSR
-  steps:
-    - uses: actions/checkout@v4
-    - run: bash scripts/deploy-production.sh "${GITHUB_SHA}"
+```text
+Inspect the example project, its open pull requests, recent CI runs, deployed SHA,
+service health and configured deployment mode. Do not change production yet.
 ```
 
-## Safety principles
+```text
+Fix the login timeout bug in a new branch. Add or update tests, run CI, review the
+diff and open a pull request. Do not push directly to main.
+```
 
-- No arbitrary shell tool exposed to the model.
-- No SSH private keys in ChatGPT, Codex, the MCP service, repository source, issues, or logs.
-- GHS secrets stay in the managed project's GitHub Actions secret store.
-- GHS pins the VPS host identity; `StrictHostKeyChecking` is never disabled.
-- Deploy only a tested commit or trusted branch.
-- Run only a repository-relative, allow-listed project deployment script.
-- Read sanitized status instead of `.env` or unrestricted logs.
-- Destructive actions require explicit confirmation.
-- Every action remains visible in GitHub Actions history.
+```text
+Deploy the tested main branch of example using GHS. After deployment, verify that
+the production SHA matches main and that the health endpoint is healthy.
+```
 
-See `docs/ONBOARDING.md`, `docs/DEPLOYMENT_MODES.md`, `docs/SECURITY.md`, `docs/SSH_TRANSPORT.md`, and `docs/PUBLICATION.md`.
+```text
+Diagnose the latest failed deployment for example. Collect only sanitized bounded
+diagnostics and explain the failed step before proposing a fix.
+```
 
-## Status
+```text
+Prepare a rollback of example to commit <SHA>. Explain the application and database
+risk first. Execute only after I provide the literal confirmation ROLLBACK.
+```
 
-This repository contains the private-test MVP. Public ChatGPT directory publication still requires OAuth 2.1, tenant isolation, a verified HTTPS service, policies, review assets, and developer submission.
+More complete end-to-end scenarios are in [Usage, workflow and examples](docs/USAGE.md).
 
-## License
+## Safety model
 
-MIT. Upstream project and service licenses remain separate.
+- No arbitrary `shell`, `ssh`, or `exec` tool is exposed to the model.
+- GitHub tokens remain on the ADOB controller.
+- GHS private keys remain in the managed repository's GitHub Actions secrets.
+- VPS host identity is pinned; `StrictHostKeyChecking` is never disabled.
+- Only repository-relative, allow-listed deployment scripts may run.
+- Production `.env`, databases, object storage, volumes and backups stay on the VPS.
+- Status and diagnostics must be sanitized and bounded.
+- Rollback requires literal `ROLLBACK` confirmation.
+- Every production action remains auditable through GitHub Actions.
+
+See [Security model](docs/SECURITY.md).
+
+## Documentation
+
+| Topic | English | 简体中文 | 日本語 |
+|---|---|---|---|
+| Usage, workflow and examples | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
+| Detailed GitHub setup | [Open](docs/GITHUB_SETUP.md) | [打开](docs/zh-CN/GITHUB_SETUP.md) | [開く](docs/ja-JP/GITHUB_SETUP.md) |
+| Deployment modes | [Open](docs/DEPLOYMENT_MODES.md) | [打开](docs/zh-CN/DEPLOYMENT_MODES.md) | [開く](docs/ja-JP/DEPLOYMENT_MODES.md) |
+| Project/server onboarding | [Open](docs/ONBOARDING.md) | [打开](docs/zh-CN/ONBOARDING.md) | [開く](docs/ja-JP/ONBOARDING.md) |
+| GHS SSH deployment | [Open](docs/SSH_TRANSPORT.md) | [打开](docs/zh-CN/SSH_TRANSPORT.md) | [開く](docs/ja-JP/SSH_TRANSPORT.md) |
+| Security model | [Open](docs/SECURITY.md) | [打开](docs/zh-CN/SECURITY.md) | [開く](docs/ja-JP/SECURITY.md) |
+| Publication checklist | [Open](docs/PUBLICATION.md) | [打开](docs/zh-CN/PUBLICATION.md) | [開く](docs/ja-JP/PUBLICATION.md) |
+| Agent operating skill | [Open](skills/autodevops/SKILL.md) | [打开](skills/autodevops/SKILL.zh-CN.md) | [開く](skills/autodevops/SKILL.ja-JP.md) |
+
+## Repository contents
+
+```text
+.codex-plugin/plugin.json                 Agent package metadata
+.mcp.json                                 Local MCP launch configuration
+.github/workflows/*-via-ssh.yml           Reusable GHS production workflows
+skills/autodevops/                        Agent operating policy and prompts
+mcp-server/                               Streamable HTTP/stdio MCP controller
+installer/bootstrap-server.sh             One-command server bootstrap
+installer/setup-managed-repo.sh           GitHub repository onboarding wizard
+installer/install-runner.sh               VSR self-hosted Runner installer
+installer/install-ssh-deploy.sh           GHS deployment-user installer
+templates/managed-repo/                   Generated workflow and adapter templates
+examples/projects.json                    Project registry examples
+docs/                                     Architecture, onboarding, security and usage
+```
+
+## Current status
+
+The repository provides a private/self-hosted MVP. A public multi-user ChatGPT listing still requires OAuth 2.1, tenant isolation, encrypted token storage, a verified HTTPS service, policies, review assets and platform submission.
+
+## License and attribution
+
+Licensed under the [Apache License 2.0](LICENSE). Modification, redistribution and commercial use are allowed.
+
+Derivative distributions must preserve the license and the attribution notice in [NOTICE](NOTICE), including the original author and source repository:
+
+```text
+Original author: b8vipvip
+Source: https://github.com/b8vipvip/ADOB
+```

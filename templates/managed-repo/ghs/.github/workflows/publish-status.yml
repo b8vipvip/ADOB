@@ -1,0 +1,22 @@
+name: Publish production status
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    uses: b8vipvip/ADOB/.github/workflows/publish-status-via-ssh.yml@__ADOB_SHA__
+    with:
+      project_name: ${{ vars.ADOB_PROJECT_ID }}
+      ssh_host: ${{ vars.VPS_HOST }}
+      ssh_port: ${{ vars.VPS_PORT || '22' }}
+      ssh_user: ${{ vars.VPS_USER }}
+      deploy_path: ${{ vars.DEPLOY_PATH }}
+    secrets:
+      ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      ssh_host_key: ${{ secrets.SSH_HOST_KEY }}

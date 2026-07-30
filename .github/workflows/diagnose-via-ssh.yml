@@ -1,0 +1,111 @@
+name: ADOB GHS diagnose via SSH
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+      ssh_host:
+        required: true
+        type: string
+      ssh_port:
+        required: false
+        default: "22"
+        type: string
+      ssh_user:
+        required: true
+        type: string
+      deploy_path:
+        required: true
+        type: string
+      service:
+        required: true
+        type: string
+      lines:
+        required: false
+        default: "200"
+        type: string
+      since:
+        required: false
+        default: "30m"
+        type: string
+    secrets:
+      ssh_private_key:
+        required: true
+      ssh_host_key:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adob-${{ inputs.project_name }}-diagnose
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate bounded inputs
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ inputs.project_name }}
+          SSH_HOST: ${{ inputs.ssh_host }}
+          SSH_PORT: ${{ inputs.ssh_port }}
+          SSH_USER: ${{ inputs.ssh_user }}
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          SERVICE: ${{ inputs.service }}
+          LINES: ${{ inputs.lines }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          set -euo pipefail
+          [[ "${PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]
+          [[ "${SSH_HOST}" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "${SSH_PORT}" =~ ^[0-9]{1,5}$ ]] && (( SSH_PORT >= 1 && SSH_PORT <= 65535 ))
+          [[ "${SSH_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "${DEPLOY_PATH}" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "${SERVICE}" =~ ^[A-Za-z0-9_.-]{1,80}$ ]]
+          [[ "${LINES}" == "100" || "${LINES}" == "200" || "${LINES}" == "500" ]]
+          [[ "${SINCE}" == "15m" || "${SINCE}" == "30m" || "${SINCE}" == "2h" || "${SINCE}" == "1d" ]]
+
+      - name: Configure pinned SSH trust
+        shell: bash
+        env:
+          SSH_HOST: ${{ inputs.ssh_host }}
+          SSH_PORT: ${{ inputs.ssh_port }}
+          SSH_USER: ${{ inputs.ssh_user }}
+          SSH_PRIVATE_KEY: ${{ secrets.ssh_private_key }}
+          SSH_HOST_KEY: ${{ secrets.ssh_host_key }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${HOME}/.ssh"
+          printf '%s\n' "${SSH_PRIVATE_KEY}" | tr -d '\r' > "${HOME}/.ssh/adob_deploy"
+          printf '%s\n' "${SSH_HOST_KEY}" | tr -d '\r' > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/adob_deploy" "${HOME}/.ssh/known_hosts"
+          cat > "${HOME}/.ssh/config" <<EOF
+          Host adob-production
+            HostName ${SSH_HOST}
+            Port ${SSH_PORT}
+            User ${SSH_USER}
+            IdentityFile ${HOME}/.ssh/adob_deploy
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ${HOME}/.ssh/known_hosts
+            ConnectTimeout 20
+          EOF
+          chmod 600 "${HOME}/.ssh/config"
+
+      - name: Collect sanitized diagnostics
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          SERVICE: ${{ inputs.service }}
+          LINES: ${{ inputs.lines }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          set -euo pipefail
+          ssh adob-production \
+            "DEPLOY_DIR='${DEPLOY_PATH}' bash '${DEPLOY_PATH}/scripts/diagnose-production.sh' '${SERVICE}' '${LINES}' '${SINCE}'"

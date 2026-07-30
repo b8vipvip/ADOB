@@ -1,0 +1,32 @@
+name: Diagnose production
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Docker Compose service name
+        required: true
+        type: string
+      lines:
+        required: true
+        default: "200"
+        type: choice
+        options: ["100", "200", "500"]
+      since:
+        required: true
+        default: "30m"
+        type: choice
+        options: ["15m", "30m", "2h", "1d"]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ${{ fromJSON(vars.ADOB_RUNNER_LABELS_JSON) }}
+    timeout-minutes: 15
+    steps:
+      - name: Collect sanitized diagnostics
+        env:
+          DEPLOY_DIR: ${{ vars.DEPLOY_PATH }}
+        run: bash "${DEPLOY_DIR}/scripts/diagnose-production.sh" "${{ inputs.service }}" "${{ inputs.lines }}" "${{ inputs.since }}"
