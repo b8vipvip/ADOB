@@ -1,5 +1,7 @@
 # AutoDevOps Bridge (ADOB)
 
+**English** | [简体中文](README.zh-CN.md) | [日本語](README.ja-JP.md)
+
 [![CI](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml/badge.svg)](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml)
 
 AutoDevOps Bridge is a reusable ChatGPT/Codex plugin for operating self-hosted software projects through auditable, allow-listed GitHub workflows.
@@ -85,13 +87,17 @@ The read-only `list_deployment_modes` tool returns the canonical definitions, an
 .mcp.json                                 Local Codex MCP launch configuration
 .github/workflows/deploy-via-ssh.yml      Reusable GHS deployment workflow
 skills/autodevops/SKILL.md                Operating policy and mode vocabulary
+skills/autodevops/SKILL.zh-CN.md          Simplified Chinese skill documentation
+skills/autodevops/SKILL.ja-JP.md          Japanese skill documentation
 mcp-server/                               Streamable HTTP/stdio MCP service
 installer/install-runner.sh               VSR self-hosted Runner installer
 installer/install-ssh-deploy.sh           GHS deployment-user installer
 examples/projects.json                    Project registry examples
- docs/DEPLOYMENT_MODES.md                 Canonical VSR/GHS contract
- docs/SSH_TRANSPORT.md                    GHS setup and caller contract
- docs/                                     Security, onboarding and publication docs
+docs/DEPLOYMENT_MODES.md                  Canonical VSR/GHS contract
+docs/SSH_TRANSPORT.md                     GHS setup and caller contract
+docs/                                     English security, onboarding, and publication docs
+docs/zh-CN/                               Simplified Chinese documentation
+docs/ja-JP/                               Japanese documentation
 ```
 
 ## Local single-user setup
