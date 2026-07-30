@@ -1,75 +1,68 @@
 # Onboarding another project or server
 
-AutoDevOps Bridge separates one-time privileged onboarding from ongoing automated operation.
+[English](ONBOARDING.md) | [简体中文](zh-CN/ONBOARDING.md) | [日本語](ja-JP/ONBOARDING.md)
 
-## Choose the deployment mode first
+ADOB automated development agents separate one-time privileged onboarding from ongoing bounded operation.
 
-Every managed project must declare one canonical ADOB deployment mode:
+## Recommended onboarding path
 
-- `VSR` — VPS Self-hosted Runner;
+1. Install the ADOB controller with `installer/bootstrap-server.sh`.
+2. Clone the target project locally and run `installer/setup-managed-repo.sh`.
+3. Review and merge the generated onboarding pull request.
+4. Configure VSR or GHS infrastructure.
+5. Add `.adob-project.json` to the controller project registry.
+6. Run CI, publish status, deploy a test release, and verify the deployed SHA.
+
+## Choose the deployment mode
+
+- `VSR` — VPS Self-hosted Runner.
 - `GHS` — GitHub-hosted SSH.
 
-Do not use vague substitutes such as local, remote, normal or runner mode. Record the exact uppercase code in the project registry and managed workflows. See `DEPLOYMENT_MODES.md` before choosing.
+Use the exact uppercase code in the project registry and managed workflows. Switching modes is an infrastructure migration, not a per-request preference.
 
-## One-time actions common to both modes
+## Common one-time actions
 
-1. Select or create the GitHub repository.
-2. Add reviewed CI, deployment, diagnosis, rollback and status workflows.
-3. Configure the project's production `.env` directly on the server.
+1. Protect the production branch and require CI.
+2. Add reviewed CI, deploy, diagnose, rollback and status workflows.
+3. Configure production `.env` directly on the VPS.
 4. Publish a sanitized status snapshot to `ops-status`.
-5. Register the project in `AUTODEVOPS_PROJECTS_JSON` with `deploymentMode: "VSR"` or `deploymentMode: "GHS"`.
-6. Verify one deployment and compare deployed SHA with the production branch SHA.
+5. Register the project in `AUTODEVOPS_PROJECTS_JSON`.
+6. Test workflow waiting behavior: queued/running must remain pending.
+7. Verify one deployment and compare production SHA with the intended revision.
 
 ## VSR onboarding
 
-Choose VSR when a persistent trusted GitHub Runner will remain on the VPS.
-
-1. Keep the managed repository private when the production Runner has broad local access.
-2. Create a dedicated non-root Runner account.
-3. Obtain a short-lived GitHub Runner registration token.
-4. Run `installer/install-runner.sh` on the server.
-5. Configure the production job with a VSR declaration:
-
-```yaml
-deploy-production-vsr:
-  runs-on: [self-hosted, linux, x64, production]
-  env:
-    ADOB_MODE: VSR
-```
-
-Use the current archive URL and SHA256 displayed by GitHub under:
-
-```text
-Repository → Settings → Actions → Runners → New self-hosted runner
-```
-
-Installer example:
+Use VSR when a persistent trusted GitHub Runner may remain on the VPS.
 
 ```bash
 export GITHUB_REPOSITORY=owner/repository
-export RUNNER_ARCHIVE_URL='https://github.com/actions/runner/releases/download/.../actions-runner-linux-x64-....tar.gz'
+export RUNNER_ARCHIVE_URL='https://github.com/actions/runner/releases/download/...'
 export RUNNER_ARCHIVE_SHA256='sha256-from-github'
 export RUNNER_NAME='project-production-vps'
 export RUNNER_LABELS='autodevops-production'
 export DEPLOY_DIR='/opt/project'
 
-bash installer/install-runner.sh
+sudo -E bash installer/install-runner.sh
 ```
 
-The installer securely prompts for the short-lived Runner token when `RUNNER_TOKEN` is not already set.
+Obtain the current archive URL, checksum and short-lived registration token from:
+
+```text
+Repository → Settings → Actions → Runners → New self-hosted runner
+```
+
+Do not allow untrusted fork workflows to execute on a production Runner.
 
 ## GHS onboarding
 
-Choose GHS when deployment will originate from a GitHub-hosted Runner over pinned SSH/rsync.
+Use GHS when deployment should originate from a GitHub-hosted Runner over pinned SSH/rsync.
 
-1. Create or select a dedicated non-root VPS deployment account.
-2. Generate a dedicated SSH key pair in an authorized administrative session.
-3. Install the public key with `installer/install-ssh-deploy.sh`.
-4. Save the private key and exact host-key line in the managed repository's GitHub Actions secrets.
-5. Call the reusable workflow with `adob_mode: GHS`.
-6. Pin the ADOB workflow to a reviewed commit SHA or release tag.
-
-See `SSH_TRANSPORT.md` for the complete GHS procedure.
+1. Generate a dedicated SSH key pair.
+2. Install the public key with `installer/install-ssh-deploy.sh`.
+3. Save the private key as `SSH_PRIVATE_KEY` in GitHub Actions Secrets.
+4. Save the exact host-key line as `SSH_HOST_KEY`.
+5. Configure `VPS_HOST`, `VPS_PORT`, `VPS_USER` and `DEPLOY_PATH` Variables.
+6. Pin reusable ADOB workflows to a reviewed commit SHA or release tag.
 
 ## Project registry entry
 
@@ -90,60 +83,57 @@ See `SSH_TRANSPORT.md` for the complete GHS procedure.
 }
 ```
 
-The mode is enforced by the MCP server. Calling `trigger_deploy` with a different mode is rejected until the server-side registry is changed.
-
 ## Repository contract
 
-The plugin expects the project to expose these reviewed workflows, though filenames can be changed in the registry:
-
 ```text
-deploy-production.yml
-diagnose-production.yml
-rollback-production.yml
-publish-status.yml
+.github/workflows/ci.yml
+.github/workflows/deploy-production.yml
+.github/workflows/diagnose-production.yml
+.github/workflows/rollback-production.yml
+.github/workflows/publish-status.yml
+scripts/deploy-production.sh
+scripts/diagnose-production.sh
+scripts/rollback-production.sh
+scripts/publish-status.sh
 ```
 
-The status publisher writes a sanitized JSON document to:
+The status publisher writes sanitized state to:
 
 ```text
 ops-status:status/status.json
 ```
 
-A project adapter may use Docker Compose, systemd, Kubernetes or another runtime, provided the workflows keep the same safe contract.
-
-## Ongoing workflow
+## Ongoing agent workflow
 
 ```text
-Discuss requirement in ChatGPT mobile/web
-          ↓
-ChatGPT reads project status and configured VSR/GHS mode
-          ↓
-Creates a branch and implements the change
-          ↓
-GitHub-hosted CI validates it
-          ↓
+Requirement enters ADOB agents
+        ↓
+Agents inspect repository, CI and production state
+        ↓
+Branch implementation and pull request
+        ↓
+CI may queue or run; agents wait or continue independent work
+        ↓
 Reviewed change enters the production branch
-          ↓
-VSR or GHS executes the allow-listed deployment workflow
-          ↓
+        ↓
+VSR or GHS runs the allow-listed deployment
+        ↓
+Agents wait for terminal Actions status
+        ↓
 Status publisher updates ops-status
-          ↓
-ChatGPT verifies deployed SHA, health and mode
+        ↓
+Agents verify deployed SHA and health
 ```
 
 ## Changing modes
 
-Switching between VSR and GHS is an infrastructure migration, not a one-off deployment option.
-
-1. Provision the new execution path.
-2. Update managed workflows.
-3. Update `deploymentMode` in the MCP project registry.
-4. Perform one explicit deployment using the new code.
-5. Verify health and deployed SHA.
-6. Disable the old path only after the new one succeeds.
-
-Never silently fall back from one mode to the other.
+1. Provision the new Runner or SSH path.
+2. Update and review managed workflows.
+3. Update `deploymentMode` in the controller registry.
+4. Perform one explicit deployment.
+5. Wait for the workflow to complete and verify production.
+6. Disable the old path only after the new path succeeds.
 
 ## Boundaries
 
-The plugin cannot safely automate ownership proofs, account verification, CAPTCHA, payment, domain registrar access or the initial privileged installation without an authorized human or server bootstrap mechanism. It should identify these as one-time user actions rather than requesting routine SSH log copying.
+ADOB cannot safely automate account ownership proofs, CAPTCHA, payment, legal acceptance, domain registrar access, or first-time privileged installation without an authorized operator.
