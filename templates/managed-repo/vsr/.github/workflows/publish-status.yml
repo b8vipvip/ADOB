@@ -1,0 +1,69 @@
+name: Publish production status
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ${{ fromJSON(vars.ADOB_RUNNER_LABELS_JSON) }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sanitized status
+        env:
+          ADOB_MODE: VSR
+          ADOB_PROJECT_ID: ${{ vars.ADOB_PROJECT_ID }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_PATH }}
+        run: bash "${DEPLOY_DIR}/scripts/publish-status.sh" > /tmp/adob-status.json
+      - name: Validate status
+        run: jq -e 'type == "object"' /tmp/adob-status.json >/dev/null
+      - name: Publish status branch
+        uses: actions/github-script@v7
+        env:
+          STATUS_BRANCH: ops-status
+          STATUS_PATH: status/status.json
+          PROJECT_NAME: ${{ vars.ADOB_PROJECT_ID }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const status = fs.readFileSync('/tmp/adob-status.json', 'utf8');
+            JSON.parse(status);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = process.env.STATUS_BRANCH;
+            const statusPath = process.env.STATUS_PATH;
+            const markdownPath = statusPath.replace(/\.json$/, '.md');
+            const markdown = `# ${process.env.PROJECT_NAME} production status\n\nUpdated: ${new Date().toISOString()}\n\n\`\`\`json\n${status.trim()}\n\`\`\`\n`;
+            async function blob(content) {
+              return (await github.rest.git.createBlob({ owner, repo, content: Buffer.from(content).toString('base64'), encoding: 'base64' })).data.sha;
+            }
+            let currentCommit = null;
+            try {
+              const ref = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+              currentCommit = ref.data.object.sha;
+            } catch (error) { if (error.status !== 404) throw error; }
+            const treeEntries = [
+              { path: statusPath, mode: '100644', type: 'blob', sha: await blob(status) },
+              { path: markdownPath, mode: '100644', type: 'blob', sha: await blob(markdown) }
+            ];
+            let tree;
+            let parents = [];
+            if (currentCommit) {
+              const current = await github.rest.git.getCommit({ owner, repo, commit_sha: currentCommit });
+              tree = await github.rest.git.createTree({ owner, repo, base_tree: current.data.tree.sha, tree: treeEntries });
+              parents = [currentCommit];
+            } else {
+              tree = await github.rest.git.createTree({ owner, repo, tree: treeEntries });
+            }
+            const commit = await github.rest.git.createCommit({ owner, repo, message: `status: update ${process.env.PROJECT_NAME}`, tree: tree.data.sha, parents });
+            if (currentCommit) {
+              await github.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false });
+            } else {
+              await github.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
+            }
