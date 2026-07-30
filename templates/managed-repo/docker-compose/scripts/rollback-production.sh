@@ -6,7 +6,7 @@ target="${2:-}"
 [[ "$confirm" == "ROLLBACK" ]] || { echo "Literal ROLLBACK confirmation is required" >&2; exit 64; }
 current="$(cat "${DEPLOY_DIR}/.deploy/current_sha" 2>/dev/null || true)"
 if [[ -z "$target" ]]; then
-  target="$(awk '{print $2}' "${DEPLOY_DIR}/.deploy/history.log" 2>/dev/null | tac | awk -v current="$current" '$0 != current && !seen[$0]++ { print; exit }')"
+  target="$(awk '$2 ~ /^[0-9a-fA-F]{7,64}$/ {print $2}' "${DEPLOY_DIR}/.deploy/history.log" 2>/dev/null | tac | awk -v current="$current" '$0 != current && !seen[$0]++ { print; exit }')"
 fi
 [[ "$target" =~ ^[0-9a-fA-F]{7,64}$ ]] || { echo "No retained rollback SHA is available" >&2; exit 66; }
 source_dir="${DEPLOY_DIR}.adob/incoming/${target}"
