@@ -1,88 +1,88 @@
-# ADOB — GPT–GitHub–VPS Automated Development Agent
+# ADOB — Automated Development Agents for GitHub and VPS
 
 [![CI](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml/badge.svg)](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml)
 
 **English** | [简体中文](README.zh-CN.md) | [日本語](README.ja-JP.md)
 
-ADOB is an automation agent that connects **GPT, GitHub, and a VPS** into one auditable software-development loop.
+ADOB is an **automated development-agent system** that coordinates AI models, GitHub, GitHub Actions, and VPS production environments through one auditable workflow.
 
-- **GPT / ChatGPT / Codex** is the conversational planning and control interface.
-- **GitHub** is the source of truth and control plane for branches, pull requests, CI, reviews, workflow dispatches, and audit history.
-- **VPS** is the production execution plane for deployment, diagnostics, health checks, and rollback.
-- **ADOB MCP server** exposes bounded tools so an AI agent can operate the workflow without receiving unrestricted shell access or private SSH keys.
+Its core is a coordinated group of bounded development agents plus an MCP controller. Together they can:
 
-The intended experience is:
+- inspect repositories, pull requests, CI and sanitized production state;
+- implement changes on branches and prepare reviewed pull requests;
+- trigger allow-listed GitHub Actions workflows;
+- monitor long-running jobs without treating “still running” as failure;
+- deploy through VSR or GHS, verify production, diagnose failures and perform confirmed rollback.
+
+Any MCP-capable or GPT-compatible client may be used as the human interaction layer. GitHub remains the source of truth and the VPS remains the production execution plane.
+
+## Agent workflow
 
 ```text
-Describe a requirement to GPT
-        ↓
-Inspect repository, CI and production status
-        ↓
-Create branch → edit code → test → open pull request
-        ↓
-Review and merge through GitHub
-        ↓
-Deploy to VPS with VSR or GHS
-        ↓
-Verify release SHA, service health and status snapshot
-        ↓
-Diagnose or roll back through allow-listed workflows when required
+Requirement
+    ↓
+Planning and repository-inspection agents
+    ↓
+Branch implementation → tests → pull request
+    ↓
+GitHub review and CI
+    ↓
+Workflow monitor: queued/running → wait or continue independent work
+    ↓
+VSR or GHS deployment to VPS
+    ↓
+Production SHA and health verification
+    ↓
+Bounded diagnostics or confirmed rollback when required
 ```
 
-## What ADOB automates
+## Long-running GitHub Actions
 
-- Register one or more GitHub repositories as managed projects.
-- Let GPT inspect sanitized production status and recent GitHub Actions runs.
-- Guide development through branch, implementation, test, review and merge.
-- Trigger only allow-listed deployment, diagnostics and rollback workflows.
-- Deploy through either a VPS self-hosted Runner or pinned SSH/rsync.
-- Verify the deployed commit after production changes.
-- Keep production activity visible in GitHub Actions history.
-- Require explicit confirmation for destructive rollback actions.
+GitHub Actions may remain queued or running for several minutes. ADOB uses an explicit non-terminal state model:
 
-ADOB is not a general-purpose remote shell. Repository text, issues, logs, pull requests and uploaded files are treated as untrusted data rather than instructions.
+- `queued`, `requested`, `pending`, `waiting`, and `in_progress` are **not failures**;
+- only a run with `status: completed` receives a final success or failure decision;
+- trigger tools accept `wait_seconds=0` for immediate return and parallel work;
+- trigger tools may poll for up to `300` seconds;
+- `wait_for_workflow_run` can recheck a known run ID or rediscover a dispatched workflow later;
+- reaching the wait limit returns `still pending`, not failed.
+
+This lets agents continue documentation, code review, test analysis, or another independent task and return to the workflow before any dependent operation or final conclusion.
 
 ## Architecture
 
 ```text
-GPT / ChatGPT / Codex / MCP client
-                  │
-                  │ bounded MCP tools
-                  ▼
-        ADOB controller service
-                  │
-                  │ GitHub API
-                  ▼
+AI development agents / MCP client
+              │ bounded tools
+              ▼
+       ADOB MCP controller
+              │ GitHub API
+              ▼
      GitHub repositories and Actions
-          │                   │
-          │ VSR               │ GHS
-          ▼                   ▼
+        │                     │
+        │ VSR                 │ GHS
+        ▼                     ▼
 VPS self-hosted Runner   GitHub-hosted Runner
-          │                   │ pinned SSH + rsync
-          └──────────┬────────┘
-                     ▼
-        allow-listed VPS project script
-                     │
-                     ▼
+        │                     │ pinned SSH + rsync
+        └──────────┬──────────┘
+                   ▼
+          allow-listed VPS scripts
+                   ▼
        deploy → verify → diagnose → rollback
 ```
 
-## Production execution modes
+ADOB never exposes an unrestricted remote shell to the model. Repository text, issues, comments, pull requests, logs, and uploaded files are treated as untrusted data.
 
-ADOB has one development lifecycle and two production execution modes. Always use the exact uppercase code.
+## Production execution modes
 
 | Code | Full name | Execution path | Best fit |
 |---|---|---|---|
-| `VSR` | VPS Self-hosted Runner | GitHub Actions runs directly on a persistent Runner installed on the VPS | A trusted private VPS that needs direct local deployment and diagnostics |
-| `GHS` | GitHub-hosted SSH | GitHub-hosted Runner checks out the tested revision and deploys through pinned SSH/rsync | A VPS where no persistent GitHub Runner should remain installed |
+| `VSR` | VPS Self-hosted Runner | GitHub Actions runs on a persistent trusted Runner installed on the VPS | Private VPS environments needing direct local deployment and diagnostics |
+| `GHS` | GitHub-hosted SSH | A GitHub-hosted Runner deploys the tested revision through pinned SSH/rsync | Environments that should not keep a GitHub Runner permanently installed |
 
-`VSR` and `GHS` describe production execution. They are independent from the MCP connection transports `stdio` and `http`.
-
-See [Deployment modes](docs/DEPLOYMENT_MODES.md) for the complete contract.
+`VSR` and `GHS` describe production execution. They are independent from MCP transports such as `stdio` and `http`.
 
 ## Quick server installation
-
-The interactive bootstrap installs Docker when necessary, deploys the ADOB controller, creates a protected configuration file, generates an MCP bearer secret, and can optionally configure the same server as a GHS deployment target.
 
 ```bash
 curl -fsSL \
@@ -91,29 +91,20 @@ curl -fsSL \
 sudo bash /tmp/adob-bootstrap.sh
 ```
 
-The installer asks for:
-
-- a fine-grained GitHub token;
-- the managed repository in `owner/repo` format;
-- project ID, name, production branch and `VSR`/`GHS` mode;
-- optionally, the GHS deployment public key and deployment directory.
-
-Default installation locations:
+Default locations:
 
 ```text
-Source and compose file: /opt/adob-agent
+Source and Compose:      /opt/adob-agent
 Protected configuration: /etc/adob-agent/adob.env
 MCP endpoint:             http://127.0.0.1:8787/mcp
 Health endpoint:          http://127.0.0.1:8787/health
 ```
 
-The service binds to `127.0.0.1` by default. Put it behind HTTPS before remote use. Do not expose the raw private-test endpoint directly to the public internet.
-
-For non-interactive provisioning and all supported variables, see [Usage, workflow and examples](docs/USAGE.md).
+The service binds to localhost by default. Put it behind an authenticated HTTPS reverse proxy before remote use.
 
 ## Quick GitHub repository onboarding
 
-After the controller is running, enter the target project's clean local Git repository and run the second wizard:
+Run the repository wizard from a clean local checkout:
 
 ```bash
 gh auth login
@@ -125,37 +116,49 @@ curl -fsSL \
 bash /tmp/setup-managed-repo.sh
 ```
 
-For the Docker Compose profile, the wizard can:
+The wizard can create an onboarding branch, generate CI/deploy/diagnose/rollback/status workflows, set Actions Variables, upload GHS Secrets from protected files, write `.adob-project.json`, and open a draft pull request.
 
-- verify the target GitHub repository and your write permission;
-- create an onboarding branch;
-- resolve and pin an exact ADOB commit SHA;
-- generate CI, deployment, diagnostics, rollback and status workflows;
-- generate bounded project adapter scripts;
-- set GitHub Actions Variables and optionally upload GHS Secrets from files;
-- write `.adob-project.json` for the ADOB server registry;
-- commit, push and open a draft onboarding pull request.
+## MCP workflow tools
 
-It refuses to overwrite existing generated paths unless `FORCE=true` is explicitly supplied. Review persistence exclusions and health checks in the draft PR before merging.
+Read and tracking tools:
 
-See [Detailed GitHub setup](docs/GITHUB_SETUP.md) for the token permission matrix, Variables and Secrets tables, Actions settings, branch protection, first validation sequence and troubleshooting.
+- `list_projects`
+- `get_project_status`
+- `get_recent_workflow_runs`
+- `get_workflow_run`
+- `wait_for_workflow_run`
 
-## Local development setup
+Production tools:
 
-```bash
-cd mcp-server
-cp .env.example .env
-npm install
-npm run check
-npm run build
-npm start
+- `trigger_deploy`
+- `trigger_diagnose`
+- `trigger_rollback`
+
+Example fire-and-continue deployment:
+
+```json
+{
+  "project_id": "example",
+  "mode": "GHS",
+  "ref": "main",
+  "wait_seconds": 0
+}
 ```
 
-The Streamable HTTP endpoint is `/mcp`; the health endpoint is `/health`.
+Example bounded synchronous wait:
 
-## Managed-project contract
+```json
+{
+  "project_id": "example",
+  "run_id": 123456789,
+  "max_wait_seconds": 300,
+  "poll_interval_seconds": 15
+}
+```
 
-Each managed repository should contain reviewed workflows and a sanitized status publisher:
+## Managed repository contract
+
+A managed project normally contains:
 
 ```text
 .github/workflows/ci.yml
@@ -163,115 +166,57 @@ Each managed repository should contain reviewed workflows and a sanitized status
 .github/workflows/diagnose-production.yml
 .github/workflows/rollback-production.yml
 .github/workflows/publish-status.yml
-
-ops-status branch:
-  status/status.json
-  status/STATUS.md
+scripts/deploy-production.sh
+scripts/diagnose-production.sh
+scripts/rollback-production.sh
+scripts/publish-status.sh
 ```
 
-Workflow filenames are configurable in the project registry.
-
-Example project registration:
-
-```json
-{
-  "id": "example",
-  "name": "Example App",
-  "repo": "owner/example",
-  "productionBranch": "main",
-  "statusBranch": "ops-status",
-  "statusPath": "status/status.json",
-  "deploymentMode": "GHS",
-  "workflows": {
-    "deploy": "deploy-production.yml",
-    "diagnose": "diagnose-production.yml",
-    "rollback": "rollback-production.yml"
-  }
-}
-```
-
-## Example GPT requests
+Sanitized production status is published to:
 
 ```text
-Inspect the example project, its open pull requests, recent CI runs, deployed SHA,
-service health and configured deployment mode. Do not change production yet.
+ops-status:status/status.json
 ```
-
-```text
-Fix the login timeout bug in a new branch. Add or update tests, run CI, review the
-diff and open a pull request. Do not push directly to main.
-```
-
-```text
-Deploy the tested main branch of example using GHS. After deployment, verify that
-the production SHA matches main and that the health endpoint is healthy.
-```
-
-```text
-Diagnose the latest failed deployment for example. Collect only sanitized bounded
-diagnostics and explain the failed step before proposing a fix.
-```
-
-```text
-Prepare a rollback of example to commit <SHA>. Explain the application and database
-risk first. Execute only after I provide the literal confirmation ROLLBACK.
-```
-
-More complete end-to-end scenarios are in [Usage, workflow and examples](docs/USAGE.md).
 
 ## Safety model
 
-- No arbitrary `shell`, `ssh`, or `exec` tool is exposed to the model.
+- No arbitrary `shell`, `ssh`, or `exec` MCP tool.
 - GitHub tokens remain on the ADOB controller.
-- GHS private keys remain in the managed repository's GitHub Actions secrets.
+- GHS private keys remain in GitHub Actions Secrets.
 - VPS host identity is pinned; `StrictHostKeyChecking` is never disabled.
-- Only repository-relative, allow-listed deployment scripts may run.
-- Production `.env`, databases, object storage, volumes and backups stay on the VPS.
-- Status and diagnostics must be sanitized and bounded.
+- Only reviewed, repository-relative allow-listed scripts may run.
+- Production `.env`, databases, volumes, uploads and backups remain on the VPS.
+- Diagnostics are bounded and sanitized.
 - Rollback requires literal `ROLLBACK` confirmation.
-- Every production action remains auditable through GitHub Actions.
-
-See [Security model](docs/SECURITY.md).
+- Pending Actions are never misreported as failed.
 
 ## Documentation
 
 | Topic | English | 简体中文 | 日本語 |
 |---|---|---|---|
-| Usage, workflow and examples | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
+| Usage and examples | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
+| Workflow waiting and concurrency | [Open](docs/WORKFLOW_WAITING.md) | [打开](docs/zh-CN/WORKFLOW_WAITING.md) | [開く](docs/ja-JP/WORKFLOW_WAITING.md) |
 | Detailed GitHub setup | [Open](docs/GITHUB_SETUP.md) | [打开](docs/zh-CN/GITHUB_SETUP.md) | [開く](docs/ja-JP/GITHUB_SETUP.md) |
 | Deployment modes | [Open](docs/DEPLOYMENT_MODES.md) | [打开](docs/zh-CN/DEPLOYMENT_MODES.md) | [開く](docs/ja-JP/DEPLOYMENT_MODES.md) |
 | Project/server onboarding | [Open](docs/ONBOARDING.md) | [打开](docs/zh-CN/ONBOARDING.md) | [開く](docs/ja-JP/ONBOARDING.md) |
-| GHS SSH deployment | [Open](docs/SSH_TRANSPORT.md) | [打开](docs/zh-CN/SSH_TRANSPORT.md) | [開く](docs/ja-JP/SSH_TRANSPORT.md) |
 | Security model | [Open](docs/SECURITY.md) | [打开](docs/zh-CN/SECURITY.md) | [開く](docs/ja-JP/SECURITY.md) |
-| Publication checklist | [Open](docs/PUBLICATION.md) | [打开](docs/zh-CN/PUBLICATION.md) | [開く](docs/ja-JP/PUBLICATION.md) |
-| Agent operating skill | [Open](skills/autodevops/SKILL.md) | [打开](skills/autodevops/SKILL.zh-CN.md) | [開く](skills/autodevops/SKILL.ja-JP.md) |
+| Production readiness | [Open](docs/PUBLICATION.md) | [打开](docs/zh-CN/PUBLICATION.md) | [開く](docs/ja-JP/PUBLICATION.md) |
 
 ## Repository contents
 
 ```text
-.codex-plugin/plugin.json                 Agent package metadata
 .mcp.json                                 Local MCP launch configuration
-.github/workflows/*-via-ssh.yml           Reusable GHS production workflows
-skills/autodevops/                        Agent operating policy and prompts
-mcp-server/                               Streamable HTTP/stdio MCP controller
-installer/bootstrap-server.sh             One-command server bootstrap
-installer/setup-managed-repo.sh           GitHub repository onboarding wizard
-installer/install-runner.sh               VSR self-hosted Runner installer
-installer/install-ssh-deploy.sh           GHS deployment-user installer
-templates/managed-repo/                   Generated workflow and adapter templates
-examples/projects.json                    Project registry examples
-docs/                                     Architecture, onboarding, security and usage
+skills/autodevops/                        Agent operating policy
+mcp-server/                               MCP controller and workflow tracker
+installer/bootstrap-server.sh             Server bootstrap
+installer/setup-managed-repo.sh           Managed-repository onboarding wizard
+templates/managed-repo/                   Workflow and adapter templates
+docs/                                     Architecture, setup, safety and operations
 ```
-
-## Current status
-
-The repository provides a private/self-hosted MVP. A public multi-user ChatGPT listing still requires OAuth 2.1, tenant isolation, encrypted token storage, a verified HTTPS service, policies, review assets and platform submission.
 
 ## License and attribution
 
-Licensed under the [Apache License 2.0](LICENSE). Modification, redistribution and commercial use are allowed.
-
-Derivative distributions must preserve the license and the attribution notice in [NOTICE](NOTICE), including the original author and source repository:
+Licensed under the [Apache License 2.0](LICENSE). Modification, redistribution, derivative development, and commercial use are allowed. Derivative distributions must preserve the license and the attribution notice in [NOTICE](NOTICE).
 
 ```text
 Original author: b8vipvip

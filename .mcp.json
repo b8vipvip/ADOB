@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "autodevops-bridge": {
+    "adob-agents": {
       "command": "node",
-      "args": ["${PLUGIN_ROOT}/mcp-server/dist/index.js"],
+      "args": ["mcp-server/dist/agents.js"],
       "env": {
         "AUTODEVOPS_HOST": "127.0.0.1",
         "AUTODEVOPS_PORT": "8787"

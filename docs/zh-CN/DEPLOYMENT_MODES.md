@@ -2,200 +2,100 @@
 
 [English](../DEPLOYMENT_MODES.md) | **简体中文** | [日本語](../ja-JP/DEPLOYMENT_MODES.md)
 
-ADOB 使用一套自动化开发生命周期和两种生产执行模式。模式代码是项目契约的一部分，必须始终使用大写形式。
+ADOB 自动化开发智能体只有一套开发生命周期，但有两种生产执行模式。必须使用准确的大写代码。
 
-## 标准名称
-
-### VSR — VPS Self-hosted Runner（VPS 自托管 Runner）
+## VSR — VPS Self-hosted Runner
 
 ```text
 GitHub Actions
       ↓
-VPS 上常驻的自托管 Runner
+VPS 上长期运行的可信 Runner
       ↓
-白名单中的项目部署脚本
+白名单项目脚本
 ```
 
-VSR 直接在目标 VPS 上运行 GitHub Actions 任务。由于 Runner 已经在生产主机内部执行，因此不需要额外的部署 SSH 跳转。
+适用于需要本机部署、诊断，并且能够隔离不可信工作流的环境。
 
-适合使用 VSR 的情况：
+特点：
 
-- 可以在 VPS 上持续安装并运行专用、可信的 Runner；
-- 需要方便地直接执行本地诊断、状态发布、部署和回滚任务；
-- 仓库已防止不安全的 fork 工作流进入生产 Runner；
-- Runner 账户和 Docker 访问权限可按生产级权限管理。
+- VPS 上长期运行 Runner 服务；
+- 不需要额外部署 SSH 跳转；
+- 可直接访问本机 Docker 和服务；
+- 必须维护 Runner 更新与隔离；
+- Runner 权限属于生产级权限。
 
-主要运维特征：
-
-- VPS 上存在常驻 Runner 服务；
-- 能最快访问本地服务和文件；
-- 部署无需 GitHub Actions SSH 私钥；
-- 必须维护 Runner 生命周期、更新和隔离；
-- 绝不能让不可信工作流在生产 Runner 上执行。
-
-### GHS — GitHub-hosted SSH（GitHub 托管 SSH）
+## GHS — GitHub-hosted SSH
 
 ```text
 GitHub 托管 Runner
       ↓ 准确的已测试版本
-固定主机密钥的 SSH + rsync
+固定主机公钥 SSH + rsync
       ↓
-VPS 上的专用部署账户
+VPS 专用非 root 部署账号
       ↓
-白名单中的项目部署脚本
+白名单项目脚本
 ```
 
-GHS 在 GitHub 托管 Runner 上运行编排任务。它检出准确的已测试版本，将其上传到生产目录之外的暂存目录，并通过固定主机密钥的 SSH 调用项目经过审查的部署脚本。
+适用于不希望 VPS 长期运行 GitHub Runner 的环境。
 
-适合使用 GHS 的情况：
+特点：
 
-- 不希望在 VPS 上常驻 GitHub Runner；
-- 项目可以在 GitHub Actions secrets 中保存专用 SSH 私钥和准确的主机密钥；
-- 希望每次部署都从干净的 GitHub 托管 Runner 开始；
-- VPS 直接诊断通过其他受限工作流或端点完成。
-
-主要运维特征：
-
-- VPS 上不需要常驻 GitHub Runner 服务；
-- 部署前通过 rsync 暂存准确提交；
-- 使用专用非 root 部署账户；
-- 使用准确的 `known_hosts` 条目和 `StrictHostKeyChecking=yes`；
-- `.env`、数据库、卷、对象存储和备份保留在 VPS 上。
+- 使用干净的 GitHub 托管执行环境；
+- 使用专用 SSH 密钥并固定准确主机公钥；
+- 源码先暂存到生产目录外；
+- `.env`、数据库、上传文件、数据卷和备份保留在 VPS；
+- 必须启用 `StrictHostKeyChecking=yes`。
 
 ## 对比
 
-| 方面 | VSR | GHS |
+| 项目 | VSR | GHS |
 |---|---|---|
-| 完整名称 | VPS Self-hosted Runner | GitHub-hosted SSH |
-| GitHub 任务位置 | 目标 VPS | GitHub 托管 Runner |
-| 部署连接 | 无额外 SSH 跳转 | 固定主机密钥的 SSH 和 rsync |
-| VPS 常驻代理 | 必需 | 不需要 |
-| GitHub SSH secrets | 部署时不需要 | 必需 |
-| 本地诊断 | 直接且方便 | 通常通过单独的受限工作流/API |
-| 主要风险边界 | 生产 Runner 执行仓库工作流 | SSH 密钥、主机密钥和部署账户 |
-| 最适合 | 具有可信 Runner 的稳定私有 VPS | 希望 VPS 上常驻代理尽可能少 |
+| Job 运行位置 | 目标 VPS | GitHub 托管 Runner |
+| VPS 常驻 Runner | 需要 | 不需要 |
+| 部署 SSH 私钥 | 不需要 | 需要 |
+| 本机诊断 | 通过评审工作流直接执行 | 通过受限 SSH 工作流 |
+| 主要安全边界 | 生产 Runner 权限 | SSH 密钥、主机公钥、部署账号 |
 
-## 项目注册表声明
-
-每个项目都应声明一种模式：
+## 项目声明
 
 ```json
 {
-  "id": "sumeme",
-  "repo": "b8vipvip/sumeme",
+  "id": "example",
+  "repo": "owner/example",
   "deploymentMode": "GHS"
 }
 ```
 
-允许值：
+允许值只有 `VSR` 和 `GHS`。触发请求显式指定不同模式时，服务会拒绝执行。
+
+## Agent 请求措辞
+
+推荐：
 
 ```text
-VSR
-GHS
-```
-
-未知值会被拒绝。为兼容旧配置，如果省略 `deploymentMode`，MCP 服务器默认使用 `VSR`；生产配置应显式声明该字段。
-
-## ChatGPT 用语
-
-推荐请求：
-
-```text
-使用 GHS 部署 sumeme。
-检查项目状态，并告诉我它配置的是 VSR 还是 GHS。
+使用项目配置的 GHS 模式部署 example。
+检查该项目配置的是 VSR 还是 GHS。
 诊断最近一次 VSR 部署失败。
-将此项目从 VSR 切换到 GHS，需要先更新服务器端项目注册表。
 ```
 
-避免使用以下模糊说法：
+避免使用“普通模式”“远程模式”“Runner 模式”等模糊词。
 
-```text
-使用普通模式。
-使用远程部署。
-使用 runner 模式。
-```
+## 等待逻辑与部署模式无关
 
-## MCP 调用
+VSR 和 GHS 都可能排队或运行数分钟。`queued`、`waiting`、`in_progress` 都属于非终态。Agent 可以等待最多 300 秒，或并发处理独立任务后通过 `wait_for_workflow_run` 复查。
 
-查询模式定义：
+## 切换模式
 
-```json
-{
-  "tool": "list_deployment_modes",
-  "arguments": {}
-}
-```
+1. 配置新的 Runner 或 SSH 账号；
+2. 更新并评审工作流；
+3. 更新控制服务注册表；
+4. 使用新模式部署一次；
+5. 等待终态并验证生产；
+6. 成功后才停用旧路径。
 
-使用显式声明部署：
-
-```json
-{
-  "tool": "trigger_deploy",
-  "arguments": {
-    "project_id": "sumeme",
-    "mode": "GHS",
-    "ref": "main"
-  }
-}
-```
-
-如果省略 `mode`，ADOB 使用服务器端项目注册表。如果提供的 `mode` 与注册表不一致，调用将失败。这样可防止 ChatGPT 在用户不知情的情况下调用另一条生产路径。
-
-## GitHub Actions 声明
-
-### VSR 任务
-
-```yaml
-deploy-production-vsr:
-  runs-on: [self-hosted, linux, x64, production]
-  env:
-    ADOB_MODE: VSR
-  steps:
-    - uses: actions/checkout@v4
-    - name: Deploy exact tested revision
-      run: bash scripts/deploy-production.sh "${GITHUB_SHA}"
-```
-
-### GHS 可复用工作流
-
-```yaml
-deploy-production-ghs:
-  uses: b8vipvip/ADOB/.github/workflows/deploy-via-ssh.yml@<PINNED_ADOB_SHA>
-  with:
-    adob_mode: GHS
-    project_name: example
-    ssh_host: ${{ vars.VPS_HOST }}
-    ssh_port: ${{ vars.VPS_PORT || '22' }}
-    ssh_user: ${{ vars.VPS_USER }}
-    deploy_path: /opt/example
-    deploy_script: scripts/deploy-production.sh
-  secrets:
-    ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
-    ssh_host_key: ${{ secrets.SSH_HOST_KEY }}
-```
-
-可复用 SSH 工作流只接受 `adob_mode: GHS`，其他值都会被拒绝。
-
-## 模式变更
-
-模式变更属于基础设施迁移，而不是单次请求偏好。切换前应：
-
-1. 更新并审查受管仓库工作流；
-2. 配置所需 Runner 或 SSH 部署账户；
-3. 更新 MCP 项目注册表中的 `deploymentMode`；
-4. 使用新代码执行一次显式部署；
-5. 验证已部署 SHA、健康状态和脱敏状态；
-6. 仅在新路径成功后禁用旧路径。
-
-单次部署过程中绝不能在 VSR 与 GHS 之间静默回退。
-
-## 与 MCP 传输方式不同
-
-以下设置彼此独立：
+## 与 MCP 连接方式不同
 
 ```text
 ADOB 部署模式：VSR | GHS
-MCP 连接传输：stdio | http
+MCP 连接方式：  stdio | http
 ```
-
-`VSR` 和 `GHS` 描述生产部署在哪里以及如何执行；`stdio` 和 `http` 描述 ChatGPT 或 Codex 如何连接 ADOB MCP 服务器。

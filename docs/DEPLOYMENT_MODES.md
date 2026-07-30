@@ -1,86 +1,67 @@
 # ADOB deployment modes: VSR and GHS
 
-ADOB uses one automated development lifecycle and two production execution modes. The mode code is part of the project contract and should always be written in uppercase.
+[English](DEPLOYMENT_MODES.md) | [简体中文](zh-CN/DEPLOYMENT_MODES.md) | [日本語](ja-JP/DEPLOYMENT_MODES.md)
 
-## Canonical names
+ADOB automated development agents use one development lifecycle and two production execution modes. Always use the exact uppercase code.
 
-### VSR — VPS Self-hosted Runner
+## VSR — VPS Self-hosted Runner
 
 ```text
 GitHub Actions
       ↓
-Persistent self-hosted Runner on the VPS
+Persistent trusted Runner on the VPS
       ↓
-Allow-listed project deployment script
+Allow-listed project script
 ```
 
-VSR runs the GitHub Actions job directly on the target VPS. There is no separate deployment SSH hop because the Runner already executes inside the production host.
+Use VSR when direct local deployment and diagnostics are useful and the production Runner can be isolated from untrusted workflows.
 
-Use VSR when:
-
-- a dedicated trusted Runner can remain installed and online on the VPS;
-- direct local diagnostics, status publishing, deployment and rollback jobs are useful;
-- the repository is protected from unsafe fork workflows;
-- the Runner account and Docker access can be treated as production-level privilege.
-
-Main operational characteristics:
+Characteristics:
 
 - persistent Runner service on the VPS;
-- fastest access to local services and files;
-- no GitHub Actions SSH private key required for deployment;
-- Runner lifecycle, updates and isolation must be maintained;
-- untrusted workflows must never execute on the production Runner.
+- no separate deployment SSH hop;
+- fast access to local Docker and services;
+- Runner lifecycle and updates must be maintained;
+- Runner privileges must be treated as production-level access.
 
-### GHS — GitHub-hosted SSH
+## GHS — GitHub-hosted SSH
 
 ```text
 GitHub-hosted Runner
       ↓ exact tested revision
 Pinned SSH + rsync
       ↓
-Dedicated deployment account on the VPS
+Dedicated non-root VPS deployment account
       ↓
-Allow-listed project deployment script
+Allow-listed project script
 ```
 
-GHS runs the orchestration job on a GitHub-hosted Runner. It checks out the exact tested revision, uploads it to a staging directory outside production, and invokes the project's reviewed deployment script over pinned-host-key SSH.
+Use GHS when no persistent GitHub Runner should remain on the VPS.
 
-Use GHS when:
+Characteristics:
 
-- a persistent GitHub Runner should not remain on the VPS;
-- the project can store a dedicated SSH private key and exact host key in GitHub Actions secrets;
-- deployment should start from a clean GitHub-hosted Runner;
-- direct VPS diagnostics are handled through separate bounded workflows or endpoints.
-
-Main operational characteristics:
-
-- no persistent GitHub Runner service on the VPS;
-- exact commit is staged with rsync before deployment;
-- dedicated non-root deployment account;
-- exact `known_hosts` entry and `StrictHostKeyChecking=yes`;
-- `.env`, databases, volumes, object storage and backups remain on the VPS.
+- clean GitHub-hosted execution environment;
+- dedicated SSH key and exact host-key pinning;
+- source staged outside production before deployment;
+- `.env`, databases, uploads, volumes and backups remain on the VPS;
+- `StrictHostKeyChecking=yes` is mandatory.
 
 ## Comparison
 
 | Area | VSR | GHS |
 |---|---|---|
-| Full name | VPS Self-hosted Runner | GitHub-hosted SSH |
-| GitHub job location | Target VPS | GitHub-hosted Runner |
-| Deployment connection | No extra SSH hop | Pinned SSH and rsync |
-| Persistent VPS agent | Required | Not required |
-| GitHub SSH secrets | Not required for deployment | Required |
-| Local diagnostics | Direct and convenient | Usually separate bounded workflow/API |
-| Main risk boundary | Production Runner executes repository workflows | SSH key, host key and deployment account |
-| Best fit | Stable private VPS with trusted Runner | Minimal persistent agent footprint on VPS |
+| Job location | Target VPS | GitHub-hosted Runner |
+| Persistent VPS Runner | Required | Not required |
+| Deployment SSH key | Not required | Required |
+| Local diagnostics | Direct through reviewed workflows | Through bounded SSH workflow |
+| Main security boundary | Production Runner permissions | SSH key, host key and deployment account |
 
-## Project registry declaration
-
-Every project should declare one mode:
+## Project declaration
 
 ```json
 {
-  "id": "sumeme",
-  "repo": "b8vipvip/sumeme",
+  "id": "example",
+  "repo": "owner/example",
   "deploymentMode": "GHS"
 }
 ```
@@ -92,108 +73,38 @@ VSR
 GHS
 ```
 
-Unknown values are rejected. When `deploymentMode` is omitted for backward compatibility, the MCP server defaults to `VSR`; production configurations should declare it explicitly.
+A trigger that explicitly requests a mode different from the registry is rejected.
 
-## ChatGPT wording
+## Agent request wording
 
-Preferred requests:
+Preferred:
 
 ```text
-Deploy sumeme using GHS.
-Check the project status and tell me whether it is configured for VSR or GHS.
+Deploy example using its configured GHS mode.
+Check whether the project is configured for VSR or GHS.
 Diagnose the latest VSR deployment failure.
-Switching this project from VSR to GHS requires updating the server-side project registry first.
 ```
 
-Avoid ambiguous wording such as:
+Avoid ambiguous phrases such as “normal mode,” “remote mode,” or “runner mode.”
 
-```text
-Use the normal mode.
-Use remote deployment.
-Use runner mode.
-```
+## Waiting is independent from deployment mode
 
-## MCP calls
-
-Discover the definitions:
-
-```json
-{
-  "tool": "list_deployment_modes",
-  "arguments": {}
-}
-```
-
-Deploy with an explicit declaration:
-
-```json
-{
-  "tool": "trigger_deploy",
-  "arguments": {
-    "project_id": "sumeme",
-    "mode": "GHS",
-    "ref": "main"
-  }
-}
-```
-
-If `mode` is omitted, ADOB uses the server-side project registry. If `mode` is supplied and does not match the registry, the call fails. This prevents ChatGPT from silently invoking a different production path than the user intended.
-
-## GitHub Actions declarations
-
-### VSR job
-
-```yaml
-deploy-production-vsr:
-  runs-on: [self-hosted, linux, x64, production]
-  env:
-    ADOB_MODE: VSR
-  steps:
-    - uses: actions/checkout@v4
-    - name: Deploy exact tested revision
-      run: bash scripts/deploy-production.sh "${GITHUB_SHA}"
-```
-
-### GHS reusable workflow
-
-```yaml
-deploy-production-ghs:
-  uses: b8vipvip/ADOB/.github/workflows/deploy-via-ssh.yml@<PINNED_ADOB_SHA>
-  with:
-    adob_mode: GHS
-    project_name: example
-    ssh_host: ${{ vars.VPS_HOST }}
-    ssh_port: ${{ vars.VPS_PORT || '22' }}
-    ssh_user: ${{ vars.VPS_USER }}
-    deploy_path: /opt/example
-    deploy_script: scripts/deploy-production.sh
-  secrets:
-    ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
-    ssh_host_key: ${{ secrets.SSH_HOST_KEY }}
-```
-
-The reusable SSH workflow accepts only `adob_mode: GHS` and rejects any other value.
+Both VSR and GHS workflows may queue or run for several minutes. `queued`, `waiting`, and `in_progress` are non-terminal in both modes. Agents may wait up to 300 seconds or continue independent work and recheck later with `wait_for_workflow_run`.
 
 ## Mode changes
 
-A mode change is an infrastructure migration, not a per-request preference. Before switching:
+Switching modes is an infrastructure migration:
 
-1. update and review the managed repository workflows;
-2. provision the required Runner or SSH deployment account;
-3. update `deploymentMode` in the MCP project registry;
-4. perform one explicit deployment using the new code;
-5. verify the deployed SHA, health and sanitized status;
-6. disable the old path only after the new path succeeds.
-
-Do not silently fall back between VSR and GHS during one deployment.
+1. provision the new Runner or SSH account;
+2. update and review workflows;
+3. update `deploymentMode` in the controller registry;
+4. deploy once using the new mode;
+5. wait for terminal workflow status and verify production;
+6. disable the old path only after success.
 
 ## Not the same as MCP transport
 
-These settings are independent:
-
 ```text
 ADOB deployment mode: VSR | GHS
-MCP connection transport: stdio | http
+MCP transport:         stdio | http
 ```
-
-`VSR` and `GHS` describe where and how production deployment executes. `stdio` and `http` describe how ChatGPT or Codex connects to the ADOB MCP server.

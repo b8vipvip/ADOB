@@ -1,75 +1,65 @@
-# ChatGPT publication checklist
+# ADOB production-readiness checklist
 
-This repository contains the technical plugin package. Public listing still requires developer-owned account, identity, domain and policy actions.
+[English](PUBLICATION.md) | [简体中文](zh-CN/PUBLICATION.md) | [日本語](ja-JP/PUBLICATION.md)
 
-## Technical readiness
+ADOB is an automated development-agent system. This checklist covers reliable private or multi-user production operation.
 
-- [x] Dedicated public repository.
-- [x] Plugin manifest at `.codex-plugin/plugin.json`.
-- [x] Reusable Skill under `skills/`.
-- [x] MCP server supporting stdio and Streamable HTTP.
-- [x] Explicit read/write/destructive/open-world tool annotations.
+## Controller readiness
+
+- [x] Bounded MCP tools with read/write/destructive annotations.
+- [x] Project allow-list and explicit VSR/GHS modes.
 - [x] No arbitrary shell or SSH tool.
-- [x] HTTPS-ready container image.
-- [ ] OAuth 2.1 authorization server integration.
-- [ ] Tenant-scoped encrypted token storage.
-- [ ] Rate limits and abuse protection.
-- [ ] Durable audit database.
-- [ ] Public production deployment and monitoring.
-- [ ] Registered remote MCP connection metadata after the MCP service is registered.
+- [x] Streamable HTTP and stdio transports.
+- [x] Authenticated private HTTP mode.
+- [x] Workflow polling with non-terminal queued/running states.
+- [x] Maximum five-minute bounded wait and later recheck support.
+- [ ] OAuth 2.1 and PKCE for a public multi-user service.
+- [ ] Tenant-scoped encrypted credential storage.
+- [ ] Rate limits, abuse protection and revocation.
+- [ ] Durable audit and retention policy.
 
-## Listing assets
+## GitHub readiness
 
-- [ ] Final public plugin name.
-- [ ] Square icon and logo assets.
-- [ ] Screenshots showing project status, deployment, diagnostics and rollback confirmation.
-- [ ] Public website.
-- [ ] Support URL/contact.
-- [ ] Privacy policy.
-- [ ] Terms of service.
-- [ ] Data retention and deletion description.
+- [x] Fine-grained token permission guidance.
+- [x] Managed-repository onboarding wizard.
+- [x] CI, deploy, diagnose, rollback and status templates.
+- [x] Pinned reusable-workflow revision.
+- [x] Pinned SSH host identity for GHS.
+- [ ] Required branch/ruleset protections enabled on every managed repository.
+- [ ] Token expiration and rotation calendar.
+- [ ] Runner update and isolation process for VSR.
 
-## Review materials
+## VPS readiness
 
-- [ ] Explain the GitHub Runner architecture and why SSH keys are not collected.
-- [ ] Provide a demo/test GitHub account or review repository.
-- [ ] Provide at least five successful user scenarios.
-- [ ] Provide at least three negative/error scenarios.
-- [ ] Document every OAuth scope and why it is necessary.
-- [ ] Document all external domains in the content security policy.
-- [ ] Verify the MCP domain and developer identity.
+- [x] Non-root deployment account for GHS.
+- [x] Production data excluded from source synchronization.
+- [x] Bounded diagnostics and explicit rollback confirmation.
+- [ ] Tested backup and restore procedure.
+- [ ] Monitoring for disk, memory, health and certificate expiry.
+- [ ] Documented incident response and emergency access.
+- [ ] Recovery test after server replacement.
 
-## Suggested positive review scenarios
+## Workflow behavior tests
 
-1. List the registered demo projects.
-2. Read a healthy project status snapshot.
-3. Read recent CI and deployment runs.
-4. Trigger a demo diagnostics workflow and observe the accepted result.
-5. Trigger a demo deployment for a tested `main` branch and verify the deployed SHA afterward.
+- [ ] A queued workflow is reported as pending, not failed.
+- [ ] An in-progress workflow remains non-terminal.
+- [ ] `wait_seconds=0` returns tracking data for parallel work.
+- [ ] A 300-second wait returns success if the run completes.
+- [ ] A 300-second timeout returns still-pending state.
+- [ ] A completed failure is reported only after GitHub supplies the terminal conclusion.
+- [ ] Duplicate deployment is not triggered while the first run is active.
+- [ ] Production verification occurs after the deployment run completes.
 
-## Suggested negative review scenarios
+## Release sequence
 
-1. Request an unknown project ID; the tool returns a bounded error and performs no action.
-2. Request rollback without literal `ROLLBACK`; schema validation rejects the call.
-3. Attempt to specify an arbitrary workflow or shell command; no such tool or parameter exists.
-4. Use an expired or revoked OAuth token; the server rejects access.
-5. Request status from a repository outside the user's authorization; the server denies access.
+1. Run type checks, unit tests and container build.
+2. Test one GHS and one VSR project where available.
+3. Verify pending, success, failure and timeout workflow states.
+4. Verify sanitized `ops-status` output.
+5. Review secrets, token scope and host-key pinning.
+6. Tag the release and pin managed repositories to the reviewed revision.
+7. Monitor the first production runs and confirm deployed SHA.
 
-## Publication sequence
+## Human-owned actions
 
-1. Complete private end-to-end testing against SuMeMe.
-2. Deploy the OAuth-enabled MCP service under a verified public domain.
-3. Create production policies and support pages.
-4. Register and test the remote MCP connection in ChatGPT.
-5. Produce screenshots and reviewer test credentials.
-6. Submit through the OpenAI plugin/app submission process.
-7. Address review feedback without weakening the security model.
-
-## Actions requiring the developer account owner
-
-- accepting platform terms;
-- identity or business verification;
-- proving control of the public domain;
-- authorizing OAuth applications;
-- submitting legal representations;
-- pressing the final public submission control when required.
+ADOB should not automate account ownership proofs, CAPTCHA, payment, domain registrar access, legal acceptance, or the first privileged server bootstrap without an authorized operator.

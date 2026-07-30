@@ -1,88 +1,84 @@
-# ADOB — GPT–GitHub–VPS 自動開発エージェント
+# ADOB — GitHub と VPS のための自動開発エージェント
 
 [![CI](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml/badge.svg)](https://github.com/b8vipvip/ADOB/actions/workflows/ci.yml)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | **日本語**
 
-ADOB は **GPT、GitHub、VPS** を接続し、要件整理、コード変更、テスト、レビュー、デプロイ、検証、診断、ロールバックを監査可能な一つのループにまとめる自動開発エージェントです。
+ADOB は AI モデル、GitHub、GitHub Actions、VPS 本番環境を接続する**自動開発エージェントシステム**です。
 
-- **GPT / ChatGPT / Codex**：自然言語による対話、分析、計画、操作の入口です。
-- **GitHub**：ブランチ、Pull Request、CI、レビュー、Workflow 実行、監査履歴を管理する信頼できる情報源兼コントロールプレーンです。
-- **VPS**：デプロイ、診断、ヘルスチェック、ロールバックを実行する本番プレーンです。
-- **ADOB MCP サービス**：制限されたツールだけを AI エージェントに公開し、任意の Shell や SSH 秘密鍵を GPT に渡しません。
+中核は、制約された複数の自動開発 Agents と、安全なオーケストレーションを担当する MCP コントローラーです。次の処理を監査可能な形で実行します。
 
-想定する利用フローは次のとおりです。
+- リポジトリ、Pull Request、CI、サニタイズ済み本番状態の確認
+- ブランチ上の実装、テスト、レビュー用 Pull Request の準備
+- 許可リスト方式の GitHub Actions 実行
+- 長時間タスクを追跡し、「実行中」を失敗と誤判定しないこと
+- VSR / GHS デプロイ、本番検証、限定診断、確認済みロールバック
+
+MCP 対応クライアントや GPT 互換モデルを対話入口として利用できます。GitHub は常にコードの信頼できる情報源であり、VPS は本番実行環境です。
+
+## エージェントの開発フロー
 
 ```text
-GPT に開発要件を伝える
-        ↓
-リポジトリ、CI、本番状態を確認
-        ↓
-ブランチ作成 → コード変更 → テスト → Pull Request 作成
-        ↓
-GitHub でレビューしてマージ
-        ↓
+要件
+  ↓
+計画・リポジトリ確認 Agents
+  ↓
+ブランチ実装 → テスト → Pull Request
+  ↓
+GitHub レビューと CI
+  ↓
+Workflow 監視：キュー/実行中 → 待機または独立作業を並行実行
+  ↓
 VSR または GHS で VPS にデプロイ
-        ↓
-リリース SHA、サービス状態、ステータススナップショットを検証
-        ↓
-必要に応じて許可済み Workflow で診断またはロールバック
+  ↓
+本番 SHA とヘルスを検証
+  ↓
+必要に応じて限定診断または確認済みロールバック
 ```
 
-## ADOB が自動化する範囲
+## 長時間 GitHub Actions の扱い
 
-- 一つ以上の GitHub リポジトリを管理対象プロジェクトとして登録します。
-- GPT からサニタイズ済み本番状態と最近の GitHub Actions 実行を確認できます。
-- ブランチ、実装、テスト、レビュー、マージの順序で開発を進めます。
-- 許可リストに登録されたデプロイ、診断、ロールバック Workflow のみを実行します。
-- VPS セルフホスト Runner、またはホスト鍵を固定した SSH/rsync でデプロイします。
-- 本番変更後に実際のデプロイ Commit を検証します。
-- 本番操作を GitHub Actions 履歴に残します。
-- 破壊的なロールバックには明示確認を要求します。
+- `queued`、`requested`、`pending`、`waiting`、`in_progress` は失敗ではありません。
+- `status: completed` になった後だけ最終結果を判断します。
+- `wait_seconds=0` では直ちに戻り、Agent は独立タスクを並行実行できます。
+- 一回の呼び出しで最大 `300` 秒までポーリングできます。
+- `wait_for_workflow_run` で Run ID、または実行時刻と Workflow から後で再確認できます。
+- 待機時間を超えても実行中なら「継続中」と返し、失敗にはしません。
 
-ADOB は汎用リモート Shell ではありません。リポジトリ本文、Issue、ログ、Pull Request、アップロードファイルは命令ではなく、信頼できないデータとして扱います。
+依存する次の操作や最終報告の前には必ず状態を再確認します。
 
 ## アーキテクチャ
 
 ```text
-GPT / ChatGPT / Codex / MCP クライアント
-                  │
-                  │ 制限された MCP ツール
-                  ▼
-          ADOB コントローラー
-                  │
-                  │ GitHub API
-                  ▼
+AI 自動開発 Agents / MCP クライアント
+              │ 制限ツール
+              ▼
+          ADOB MCP コントローラー
+              │ GitHub API
+              ▼
        GitHub リポジトリと Actions
-          │                   │
-          │ VSR               │ GHS
-          ▼                   ▼
-VPS セルフホスト Runner   GitHub ホスト Runner
-          │                   │ 固定ホスト鍵 SSH + rsync
-          └──────────┬────────┘
-                     ▼
-          VPS の許可済みプロジェクトスクリプト
-                     │
-                     ▼
+          │                  │
+          │ VSR              │ GHS
+          ▼                  ▼
+VPS セルフホスト Runner  GitHub ホスト Runner
+          │                  │ 固定ホスト鍵 SSH + rsync
+          └─────────┬────────┘
+                    ▼
+             VPS 許可済みスクリプト
+                    ▼
        デプロイ → 検証 → 診断 → ロールバック
 ```
 
-## 本番実行モード
+ADOB は任意のリモート Shell をモデルに公開しません。リポジトリ本文、Issue、コメント、PR、ログ、アップロードファイルは信頼できないデータとして扱います。
 
-ADOB の開発ライフサイクルは一つですが、本番実行モードは二つあります。設定では正確な大文字コードを使用してください。
+## 本番実行モード
 
 | コード | 正式名 | 実行経路 | 適した環境 |
 |---|---|---|---|
-| `VSR` | VPS Self-hosted Runner | VPS に常駐する Runner 上で GitHub Actions を直接実行 | 信頼できるプライベート VPS でローカルデプロイと診断が必要な場合 |
-| `GHS` | GitHub-hosted SSH | GitHub ホスト Runner がテスト済みリビジョンを取得し、固定ホスト鍵 SSH/rsync でデプロイ | VPS に GitHub Runner を常駐させたくない場合 |
+| `VSR` | VPS Self-hosted Runner | VPS 上の信頼済み Runner で Actions を実行 | 本番ホスト上の直接デプロイと診断が必要なプライベート環境 |
+| `GHS` | GitHub-hosted SSH | GitHub ホスト Runner から固定ホスト鍵 SSH/rsync でデプロイ | VPS に GitHub Runner を常駐させない環境 |
 
-`VSR` と `GHS` は本番実行方式を表し、MCP 接続方式の `stdio`、`http` とは独立しています。
-
-詳細は[デプロイモード](docs/ja-JP/DEPLOYMENT_MODES.md)を参照してください。
-
-## サーバーへのワンコマンド導入
-
-対話式 Bootstrap は、必要に応じて Docker をインストールし、ADOB コントローラーをデプロイし、保護された設定ファイルと MCP Bearer Secret を作成します。同じサーバーを GHS デプロイ先として設定することもできます。
+## サーバーへの導入
 
 ```bash
 curl -fsSL \
@@ -91,29 +87,16 @@ curl -fsSL \
 sudo bash /tmp/adob-bootstrap.sh
 ```
 
-インストーラーは次の情報を確認します。
-
-- GitHub Fine-grained Token
-- 管理対象の `owner/repo` リポジトリ
-- プロジェクト ID、名前、本番ブランチ、`VSR`/`GHS` モード
-- 任意で GHS デプロイ公開鍵とデプロイディレクトリ
-
-既定の配置先：
-
 ```text
 ソースと Compose： /opt/adob-agent
 保護設定：          /etc/adob-agent/adob.env
-MCP エンドポイント： http://127.0.0.1:8787/mcp
-ヘルスチェック：    http://127.0.0.1:8787/health
+MCP：               http://127.0.0.1:8787/mcp
+ヘルス：            http://127.0.0.1:8787/health
 ```
 
-既定では `127.0.0.1` のみにバインドします。リモート利用時は HTTPS リバースプロキシの背後に置き、現在のプライベートテスト用エンドポイントを直接インターネットへ公開しないでください。
+既定では localhost のみにバインドします。リモート利用時は認証付き HTTPS リバースプロキシを使用してください。
 
-非対話導入の変数と完全な手順は[利用方法、ワークフロー、例](docs/ja-JP/USAGE.md)を参照してください。
-
-## GitHub プロジェクトのワンコマンド接続
-
-コントローラー起動後、対象プロジェクトのクリーンなローカル Git リポジトリ内で 2 つ目のウィザードを実行します。
+## GitHub リポジトリ導入
 
 ```bash
 gh auth login
@@ -125,148 +108,73 @@ curl -fsSL \
 bash /tmp/setup-managed-repo.sh
 ```
 
-Docker Compose プロファイルでは、ウィザードが次を自動化します。
+このウィザードは導入ブランチ、CI、デプロイ、診断、ロールバック、ステータス Workflow、Actions Variables、GHS Secrets、`.adob-project.json`、ドラフト PR を準備できます。
 
-- 対象 GitHub リポジトリと書き込み権限の確認
-- 専用オンボーディングブランチの作成
-- ADOB の完全な Commit SHA の解決と固定
-- CI、デプロイ、診断、ロールバック、状態公開 Workflow の生成
-- 制限付きプロジェクトアダプタースクリプトの生成
-- GitHub Actions Variables の設定と、ファイルからの GHS Secrets 登録
-- ADOB サーバーレジストリ用 `.adob-project.json` の生成
-- Commit、Push、Draft Pull Request の作成
+## MCP Workflow ツール
 
-`FORCE=true` を明示しない限り、既存の同名 Workflow やスクリプトを上書きしません。マージ前に Draft PR で永続データ除外とヘルスチェックを確認してください。
+読み取り・追跡：
 
-Token 権限、Variables/Secrets の一覧、Actions 設定、ブランチ保護、初回検証順序、トラブルシューティングは [GitHub 詳細設定](docs/ja-JP/GITHUB_SETUP.md)を参照してください。
+- `list_projects`
+- `get_project_status`
+- `get_recent_workflow_runs`
+- `get_workflow_run`
+- `wait_for_workflow_run`
 
-## ローカル開発実行
+本番操作：
 
-```bash
-cd mcp-server
-cp .env.example .env
-npm install
-npm run check
-npm run build
-npm start
-```
+- `trigger_deploy`
+- `trigger_diagnose`
+- `trigger_rollback`
 
-Streamable HTTP エンドポイントは `/mcp`、ヘルスチェックは `/health` です。
-
-## 管理対象プロジェクトの契約
-
-各管理対象リポジトリには、レビュー済み Workflow とサニタイズ済みステータス発行処理が必要です。
-
-```text
-.github/workflows/ci.yml
-.github/workflows/deploy-production.yml
-.github/workflows/diagnose-production.yml
-.github/workflows/rollback-production.yml
-.github/workflows/publish-status.yml
-
-ops-status ブランチ：
-  status/status.json
-  status/STATUS.md
-```
-
-Workflow ファイル名はプロジェクトレジストリで変更できます。
-
-登録例：
+並行作業用の即時戻り例：
 
 ```json
 {
-  "id": "example",
-  "name": "Example App",
-  "repo": "owner/example",
-  "productionBranch": "main",
-  "statusBranch": "ops-status",
-  "statusPath": "status/status.json",
-  "deploymentMode": "GHS",
-  "workflows": {
-    "deploy": "deploy-production.yml",
-    "diagnose": "diagnose-production.yml",
-    "rollback": "rollback-production.yml"
-  }
+  "project_id": "example",
+  "mode": "GHS",
+  "ref": "main",
+  "wait_seconds": 0
 }
 ```
 
-## GPT への依頼例
+最大 5 分待機する例：
 
-```text
-example プロジェクトのリポジトリ状態、未マージ PR、最近の CI、本番 SHA、サービス状態、設定済みデプロイモードを確認してください。まだ本番は変更しないでください。
+```json
+{
+  "project_id": "example",
+  "run_id": 123456789,
+  "max_wait_seconds": 300,
+  "poll_interval_seconds": 15
+}
 ```
-
-```text
-ログインタイムアウトを新しいブランチで修正してください。テストを追加または更新し、CI を実行し、Diff をレビューして Pull Request を作成してください。main へ直接 Push しないでください。
-```
-
-```text
-テスト済みの example の main を GHS で VPS にデプロイしてください。完了後、本番 SHA が main と一致することとヘルス状態を確認してください。
-```
-
-```text
-example の直近デプロイ失敗を診断してください。サニタイズされ範囲を制限した情報だけを収集し、失敗した手順を説明してから修正案を提示してください。
-```
-
-```text
-example を Commit <SHA> に戻す準備をしてください。アプリケーションとデータベースのリスクを先に説明し、私が文字列 ROLLBACK を入力した後だけ実行してください。
-```
-
-さらに詳しいシナリオは[利用方法、ワークフロー、例](docs/ja-JP/USAGE.md)にあります。
 
 ## セキュリティモデル
 
-- 任意の `shell`、`ssh`、`exec` ツールをモデルへ公開しません。
-- GitHub Token は ADOB コントローラーだけに保存します。
-- GHS 秘密鍵は管理対象リポジトリの GitHub Actions Secrets だけに保存します。
+- 任意の `shell`、`ssh`、`exec` ツールを公開しません。
+- GitHub Token は ADOB コントローラーに保存します。
+- GHS 秘密鍵は GitHub Actions Secrets に保存します。
 - VPS ホスト鍵を固定し、`StrictHostKeyChecking` を無効化しません。
-- リポジトリ相対パスの許可済みデプロイスクリプトだけを実行します。
-- 本番 `.env`、データベース、オブジェクトストレージ、Volume、バックアップは VPS に残します。
-- ステータスと診断情報はサニタイズし、取得範囲を制限します。
-- ロールバックには文字列 `ROLLBACK` の確認が必要です。
-- 本番操作は GitHub Actions で監査可能な状態にします。
-
-詳細は[セキュリティモデル](docs/ja-JP/SECURITY.md)を参照してください。
+- レビュー済みのリポジトリ相対許可スクリプトだけを実行します。
+- 本番 `.env`、DB、Volume、アップロード、バックアップは VPS に保持します。
+- 診断は限定・サニタイズします。
+- ロールバックには文字列 `ROLLBACK` が必要です。
+- 実行中 Actions を失敗として報告しません。
 
 ## ドキュメント
 
 | トピック | English | 简体中文 | 日本語 |
 |---|---|---|---|
-| 利用方法、フロー、例 | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
-| GitHub 詳細設定 | [Open](docs/GITHUB_SETUP.md) | [打开](docs/zh-CN/GITHUB_SETUP.md) | [開く](docs/ja-JP/GITHUB_SETUP.md) |
+| 利用方法 | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
+| Workflow 待機と並行処理 | [Open](docs/WORKFLOW_WAITING.md) | [打开](docs/zh-CN/WORKFLOW_WAITING.md) | [開く](docs/ja-JP/WORKFLOW_WAITING.md) |
+| GitHub 設定 | [Open](docs/GITHUB_SETUP.md) | [打开](docs/zh-CN/GITHUB_SETUP.md) | [開く](docs/ja-JP/GITHUB_SETUP.md) |
 | デプロイモード | [Open](docs/DEPLOYMENT_MODES.md) | [打开](docs/zh-CN/DEPLOYMENT_MODES.md) | [開く](docs/ja-JP/DEPLOYMENT_MODES.md) |
-| プロジェクトとサーバー導入 | [Open](docs/ONBOARDING.md) | [打开](docs/zh-CN/ONBOARDING.md) | [開く](docs/ja-JP/ONBOARDING.md) |
-| GHS SSH デプロイ | [Open](docs/SSH_TRANSPORT.md) | [打开](docs/zh-CN/SSH_TRANSPORT.md) | [開く](docs/ja-JP/SSH_TRANSPORT.md) |
-| セキュリティモデル | [Open](docs/SECURITY.md) | [打开](docs/zh-CN/SECURITY.md) | [開く](docs/ja-JP/SECURITY.md) |
-| 公開チェックリスト | [Open](docs/PUBLICATION.md) | [打开](docs/zh-CN/PUBLICATION.md) | [開く](docs/ja-JP/PUBLICATION.md) |
-| エージェント操作スキル | [Open](skills/autodevops/SKILL.md) | [打开](skills/autodevops/SKILL.zh-CN.md) | [開く](skills/autodevops/SKILL.ja-JP.md) |
-
-## リポジトリ構成
-
-```text
-.codex-plugin/plugin.json                 エージェントパッケージ情報
-.mcp.json                                 ローカル MCP 起動設定
-.github/workflows/*-via-ssh.yml           再利用可能な GHS 本番 Workflow
-skills/autodevops/                        エージェントの操作規則とプロンプト
-mcp-server/                               Streamable HTTP/stdio MCP コントローラー
-installer/bootstrap-server.sh             サーバーワンコマンド設定スクリプト
-installer/setup-managed-repo.sh           GitHub プロジェクト接続ウィザード
-installer/install-runner.sh               VSR セルフホスト Runner インストーラー
-installer/install-ssh-deploy.sh           GHS デプロイユーザーインストーラー
-templates/managed-repo/                   自動生成 Workflow とアダプターテンプレート
-examples/projects.json                    プロジェクトレジストリ例
-docs/                                     構成、導入、セキュリティ、利用文書
-```
-
-## 現在の状態
-
-このリポジトリはプライベート／セルフホスト利用向け MVP を提供します。公開マルチユーザー ChatGPT アプリとして掲載するには、OAuth 2.1、テナント分離、暗号化 Token 保存、検証済み HTTPS サービス、各種ポリシー、審査素材、プラットフォーム申請が必要です。
+| 導入 | [Open](docs/ONBOARDING.md) | [打开](docs/zh-CN/ONBOARDING.md) | [開く](docs/ja-JP/ONBOARDING.md) |
+| セキュリティ | [Open](docs/SECURITY.md) | [打开](docs/zh-CN/SECURITY.md) | [開く](docs/ja-JP/SECURITY.md) |
+| 本番準備 | [Open](docs/PUBLICATION.md) | [打开](docs/zh-CN/PUBLICATION.md) | [開く](docs/ja-JP/PUBLICATION.md) |
 
 ## ライセンスと帰属表示
 
-[Apache License 2.0](LICENSE) の下で、変更、二次開発、再配布、商用利用が可能です。
-
-派生配布物と商用製品では、ライセンスおよび [NOTICE](NOTICE) の原作者・出典表示を保持してください。
+[Apache License 2.0](LICENSE) により、変更、二次開発、再配布、商用利用が可能です。派生配布物ではライセンスと [NOTICE](NOTICE) の表示を保持してください。
 
 ```text
 原作者：b8vipvip

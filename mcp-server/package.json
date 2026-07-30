@@ -1,15 +1,16 @@
 {
   "name": "@b8vipvip/adob-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "MCP controller for the ADOB GPT-GitHub-VPS automated development agent.",
+  "description": "MCP controller for ADOB automated development agents that coordinate GitHub and VPS workflows.",
   "license": "Apache-2.0",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "start": "node dist/agents.js",
+    "dev": "tsx watch src/agents.ts",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/workflow-state.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",

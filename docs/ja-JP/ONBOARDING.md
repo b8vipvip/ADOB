@@ -1,151 +1,83 @@
-# 別のプロジェクトまたはサーバーのオンボーディング
+# 新しいプロジェクトまたはサーバーの導入
 
 [English](../ONBOARDING.md) | [简体中文](../zh-CN/ONBOARDING.md) | **日本語**
 
-AutoDevOps Bridge は、1 回限りの高権限オンボーディングと継続的な自動運用を分離します。
+ADOB 自動開発エージェントは、一回限りの高権限導入と日常の制限操作を分離します。
 
-## 最初にデプロイモードを選択する
+## 推奨手順
 
-すべての管理対象プロジェクトは、標準 ADOB デプロイモードを 1 つ宣言する必要があります。
+1. `installer/bootstrap-server.sh` で ADOB コントローラーを導入。
+2. 対象リポジトリで `installer/setup-managed-repo.sh` を実行。
+3. 自動作成された導入 PR をレビューしてマージ。
+4. VSR または GHS を構成。
+5. `.adob-project.json` をコントローラー登録情報に追加。
+6. CI、状態発行、テストデプロイ、本番 SHA を確認。
+
+## デプロイモード
 
 - `VSR` — VPS Self-hosted Runner
 - `GHS` — GitHub-hosted SSH
 
-「ローカル」「リモート」「通常」「runner モード」などの曖昧な代替表現は使用しないでください。プロジェクトレジストリと管理対象ワークフローには、正確な大文字コードを記録します。選択前に [`DEPLOYMENT_MODES.md`](DEPLOYMENT_MODES.md) を参照してください。
+正確な大文字コードを使用します。モード変更はインフラ移行です。
 
-## 両方のモードに共通する 1 回限りの作業
+## 共通作業
 
-1. GitHub リポジトリを選択または作成する。
-2. レビュー済みの CI、デプロイ、診断、ロールバック、ステータスワークフローを追加する。
-3. プロジェクトの本番 `.env` をサーバー上で直接設定する。
-4. サニタイズ済みステータススナップショットを `ops-status` へ公開する。
-5. `AUTODEVOPS_PROJECTS_JSON` にプロジェクトを登録し、`deploymentMode: "VSR"` または `deploymentMode: "GHS"` を設定する。
-6. デプロイを 1 回検証し、デプロイ済み SHA と本番ブランチ SHA を比較する。
+1. 本番ブランチを保護し CI を必須化。
+2. CI、デプロイ、診断、ロールバック、状態 Workflow を追加。
+3. 本番 `.env` は VPS 上で設定。
+4. サニタイズ済み状態を `ops-status` に発行。
+5. `AUTODEVOPS_PROJECTS_JSON` に登録。
+6. キュー中・実行中が pending になることをテスト。
+7. 一回デプロイし本番 SHA を確認。
 
-## VSR オンボーディング
-
-信頼済みの常駐 GitHub Runner を VPS 上に維持する場合は VSR を選択します。
-
-1. 本番 Runner が広いローカルアクセスを持つ場合、管理対象リポジトリを非公開にする。
-2. 専用の非 root Runner アカウントを作成する。
-3. 有効期間の短い GitHub Runner 登録トークンを取得する。
-4. サーバー上で `installer/install-runner.sh` を実行する。
-5. VSR 宣言付きで本番ジョブを設定する。
-
-```yaml
-deploy-production-vsr:
-  runs-on: [self-hosted, linux, x64, production]
-  env:
-    ADOB_MODE: VSR
-```
-
-GitHub の次の場所に表示される最新のアーカイブ URL と SHA256 を使用してください。
-
-```text
-Repository → Settings → Actions → Runners → New self-hosted runner
-```
-
-インストーラー例：
+## VSR
 
 ```bash
 export GITHUB_REPOSITORY=owner/repository
-export RUNNER_ARCHIVE_URL='https://github.com/actions/runner/releases/download/.../actions-runner-linux-x64-....tar.gz'
+export RUNNER_ARCHIVE_URL='https://github.com/actions/runner/releases/download/...'
 export RUNNER_ARCHIVE_SHA256='sha256-from-github'
 export RUNNER_NAME='project-production-vps'
 export RUNNER_LABELS='autodevops-production'
 export DEPLOY_DIR='/opt/project'
 
-bash installer/install-runner.sh
+sudo -E bash installer/install-runner.sh
 ```
 
-`RUNNER_TOKEN` が未設定の場合、インストーラーは有効期間の短い Runner トークンを安全に入力するよう求めます。
+不可信 Fork Workflow を本番 Runner で実行しません。
 
-## GHS オンボーディング
+## GHS
 
-GitHub ホスト Runner から、ホスト鍵を固定した SSH/rsync 経由でデプロイする場合は GHS を選択します。
+1. 専用 SSH 鍵を作成。
+2. `installer/install-ssh-deploy.sh` で公開鍵を導入。
+3. 秘密鍵を `SSH_PRIVATE_KEY` Secret に保存。
+4. 正確なホスト鍵行を `SSH_HOST_KEY` に保存。
+5. `VPS_HOST`、`VPS_PORT`、`VPS_USER`、`DEPLOY_PATH` Variables を設定。
+6. ADOB Workflow をレビュー済み SHA またはタグに固定。
 
-1. 専用の非 root VPS デプロイアカウントを作成または選択する。
-2. 許可された管理セッションで専用 SSH 鍵ペアを生成する。
-3. `installer/install-ssh-deploy.sh` で公開鍵をインストールする。
-4. 秘密鍵と正確なホスト鍵行を管理対象リポジトリの GitHub Actions secrets に保存する。
-5. `adob_mode: GHS` を指定して再利用可能ワークフローを呼び出す。
-6. ADOB ワークフローをレビュー済みコミット SHA またはリリースタグに固定する。
-
-GHS の完全な手順については [`SSH_TRANSPORT.md`](SSH_TRANSPORT.md) を参照してください。
-
-## プロジェクトレジストリエントリ
-
-```json
-{
-  "id": "project-id",
-  "name": "Project Name",
-  "repo": "owner/repository",
-  "productionBranch": "main",
-  "statusBranch": "ops-status",
-  "statusPath": "status/status.json",
-  "deploymentMode": "GHS",
-  "workflows": {
-    "deploy": "deploy-production.yml",
-    "diagnose": "diagnose-production.yml",
-    "rollback": "rollback-production.yml"
-  }
-}
-```
-
-モードは MCP サーバーによって強制されます。サーバー側レジストリが変更されるまで、異なるモードで `trigger_deploy` を呼び出すと拒否されます。
-
-## リポジトリ契約
-
-プラグインは、ファイル名をレジストリで変更できるものの、プロジェクトが次のレビュー済みワークフローを提供することを想定しています。
+## 継続運用
 
 ```text
-deploy-production.yml
-diagnose-production.yml
-rollback-production.yml
-publish-status.yml
-```
-
-ステータス公開処理はサニタイズ済み JSON 文書を次へ書き込みます。
-
-```text
-ops-status:status/status.json
-```
-
-ワークフローが同じ安全契約を維持する限り、プロジェクトアダプターは Docker Compose、systemd、Kubernetes、その他のランタイムを使用できます。
-
-## 継続的なワークフロー
-
-```text
-ChatGPT モバイル/ウェブで要件を相談
-          ↓
-ChatGPT がプロジェクト状態と設定済み VSR/GHS モードを読み取る
-          ↓
-ブランチを作成して変更を実装
-          ↓
-GitHub ホスト CI が検証
-          ↓
-レビュー済み変更が本番ブランチへ入る
-          ↓
-VSR または GHS が許可リスト内デプロイワークフローを実行
-          ↓
-ステータス公開処理が ops-status を更新
-          ↓
-ChatGPT がデプロイ済み SHA、ヘルス、モードを検証
+要件が ADOB Agents に入る
+       ↓
+リポジトリ、CI、本番状態を確認
+       ↓
+ブランチ実装と PR
+       ↓
+CI がキュー/実行中なら待機または独立作業
+       ↓
+レビュー済み変更を本番ブランチへ
+       ↓
+VSR/GHS で許可デプロイ
+       ↓
+Actions の終端を待つ
+       ↓
+ops-status 更新と本番検証
 ```
 
 ## モード変更
 
-VSR と GHS の切り替えは、1 回限りのデプロイオプションではなくインフラ移行です。
-
-1. 新しい実行経路を用意する。
-2. 管理対象ワークフローを更新する。
-3. MCP プロジェクトレジストリの `deploymentMode` を更新する。
-4. 新しいコードを使って明示的なデプロイを 1 回実行する。
-5. ヘルスとデプロイ済み SHA を検証する。
-6. 新しい経路が成功した後にのみ古い経路を無効化する。
-
-一方のモードから他方へ黙ってフォールバックしてはいけません。
+新しい実行経路、Workflow、登録情報をまとめて移行し、完了と本番検証後に旧経路を停止します。
 
 ## 境界
 
-プラグインは、権限を持つ人またはサーバーブートストラップ機構がない状態で、所有権証明、アカウント確認、CAPTCHA、支払い、ドメインレジストラへのアクセス、初回の高権限インストールを安全に自動化できません。これらは、日常的に SSH ログをコピーさせるのではなく、1 回限りのユーザー作業として識別する必要があります。
+ADOB は、認可された担当者なしに所有権証明、CAPTCHA、支払い、法的同意、ドメイン管理、初回高権限導入を自動化しません。
