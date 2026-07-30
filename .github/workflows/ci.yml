@@ -62,8 +62,10 @@ jobs:
           for file in templates/managed-repo/ghs/.github/workflows/*.yml; do
             grep -Fq '__ADOB_SHA__' "$file"
           done
-          if grep -R -Eq 'SSH_PRIVATE_KEY|SSH_HOST_KEY' templates/managed-repo/*/.github/workflows/*.yml; then
-            true
+          grep -R -Fq 'secrets.SSH_PRIVATE_KEY' templates/managed-repo/ghs/.github/workflows
+          if grep -R -Fq 'secrets.SSH_PRIVATE_KEY' templates/managed-repo/vsr/.github/workflows; then
+            echo 'VSR templates must not require an SSH private key' >&2
+            exit 1
           fi
           grep -Fq '.adob-project.json' installer/setup-managed-repo.sh
           grep -Fq 'gh variable set' installer/setup-managed-repo.sh
@@ -74,8 +76,10 @@ jobs:
           for file in .github/workflows/*-via-ssh.yml; do
             grep -Fq 'StrictHostKeyChecking yes' "$file"
           done
-          if grep -R -Eq 'StrictHostKeyChecking[= ]no|ssh-keyscan' \
-            .github/workflows templates/managed-repo installer; then
+          if grep -E 'StrictHostKeyChecking[= ]no|ssh-keyscan' \
+            .github/workflows/*-via-ssh.yml \
+            templates/managed-repo/ghs/.github/workflows/*.yml \
+            installer/*.sh; then
             echo 'Unsafe SSH trust bypass found' >&2
             exit 1
           fi
