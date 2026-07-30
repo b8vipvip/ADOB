@@ -111,6 +111,35 @@ The service binds to `127.0.0.1` by default. Put it behind HTTPS before remote u
 
 For non-interactive provisioning and all supported variables, see [Usage, workflow and examples](docs/USAGE.md).
 
+## Quick GitHub repository onboarding
+
+After the controller is running, enter the target project's clean local Git repository and run the second wizard:
+
+```bash
+gh auth login
+
+curl -fsSL \
+  https://raw.githubusercontent.com/b8vipvip/ADOB/main/installer/setup-managed-repo.sh \
+  -o /tmp/setup-managed-repo.sh
+
+bash /tmp/setup-managed-repo.sh
+```
+
+For the Docker Compose profile, the wizard can:
+
+- verify the target GitHub repository and your write permission;
+- create an onboarding branch;
+- resolve and pin an exact ADOB commit SHA;
+- generate CI, deployment, diagnostics, rollback and status workflows;
+- generate bounded project adapter scripts;
+- set GitHub Actions Variables and optionally upload GHS Secrets from files;
+- write `.adob-project.json` for the ADOB server registry;
+- commit, push and open a draft onboarding pull request.
+
+It refuses to overwrite existing generated paths unless `FORCE=true` is explicitly supplied. Review persistence exclusions and health checks in the draft PR before merging.
+
+See [Detailed GitHub setup](docs/GITHUB_SETUP.md) for the token permission matrix, Variables and Secrets tables, Actions settings, branch protection, first validation sequence and troubleshooting.
+
 ## Local development setup
 
 ```bash
@@ -209,6 +238,7 @@ See [Security model](docs/SECURITY.md).
 | Topic | English | 简体中文 | 日本語 |
 |---|---|---|---|
 | Usage, workflow and examples | [Open](docs/USAGE.md) | [打开](docs/zh-CN/USAGE.md) | [開く](docs/ja-JP/USAGE.md) |
+| Detailed GitHub setup | [Open](docs/GITHUB_SETUP.md) | [打开](docs/zh-CN/GITHUB_SETUP.md) | [開く](docs/ja-JP/GITHUB_SETUP.md) |
 | Deployment modes | [Open](docs/DEPLOYMENT_MODES.md) | [打开](docs/zh-CN/DEPLOYMENT_MODES.md) | [開く](docs/ja-JP/DEPLOYMENT_MODES.md) |
 | Project/server onboarding | [Open](docs/ONBOARDING.md) | [打开](docs/zh-CN/ONBOARDING.md) | [開く](docs/ja-JP/ONBOARDING.md) |
 | GHS SSH deployment | [Open](docs/SSH_TRANSPORT.md) | [打开](docs/zh-CN/SSH_TRANSPORT.md) | [開く](docs/ja-JP/SSH_TRANSPORT.md) |
@@ -221,12 +251,14 @@ See [Security model](docs/SECURITY.md).
 ```text
 .codex-plugin/plugin.json                 Agent package metadata
 .mcp.json                                 Local MCP launch configuration
-.github/workflows/deploy-via-ssh.yml      Reusable GHS deployment workflow
+.github/workflows/*-via-ssh.yml           Reusable GHS production workflows
 skills/autodevops/                        Agent operating policy and prompts
 mcp-server/                               Streamable HTTP/stdio MCP controller
 installer/bootstrap-server.sh             One-command server bootstrap
+installer/setup-managed-repo.sh           GitHub repository onboarding wizard
 installer/install-runner.sh               VSR self-hosted Runner installer
 installer/install-ssh-deploy.sh           GHS deployment-user installer
+templates/managed-repo/                   Generated workflow and adapter templates
 examples/projects.json                    Project registry examples
 docs/                                     Architecture, onboarding, security and usage
 ```
