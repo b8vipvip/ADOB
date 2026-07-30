@@ -3,7 +3,8 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Streamable HTTP MCP server for the AutoDevOps Bridge ChatGPT/Codex plugin.",
+  "description": "MCP controller for the ADOB GPT-GitHub-VPS automated development agent.",
+  "license": "Apache-2.0",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
