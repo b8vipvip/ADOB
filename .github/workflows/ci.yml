@@ -23,11 +23,13 @@ jobs:
         run: npm install
       - name: Type-check
         run: npm run check
+      - name: Unit tests
+        run: npm test
       - name: Build
         run: npm run build
-      - name: Validate plugin manifest
+      - name: Validate agent metadata
         working-directory: .
-        run: node -e "JSON.parse(require('fs').readFileSync('.codex-plugin/plugin.json','utf8')); JSON.parse(require('fs').readFileSync('.mcp.json','utf8'));"
+        run: node -e "JSON.parse(require('fs').readFileSync('.mcp.json','utf8')); JSON.parse(require('fs').readFileSync('mcp-server/package.json','utf8'));"
       - name: Validate VSR and GHS project declarations
         working-directory: .
         run: |
@@ -83,5 +85,12 @@ jobs:
             echo 'Unsafe SSH trust bypass found' >&2
             exit 1
           fi
+      - name: Validate workflow waiting policy
+        working-directory: .
+        run: |
+          grep -Fq 'wait_for_workflow_run' mcp-server/src/mcp-server.ts
+          grep -Fq 'MAX_WORKFLOW_WAIT_SECONDS = 300' mcp-server/src/config.ts
+          grep -Fq 'DEFAULT_TRIGGER_WAIT_SECONDS = 0' mcp-server/src/config.ts
+          grep -Fq 'This is not a failure' mcp-server/src/workflow-state.ts
       - name: Build container
-        run: docker build -t autodevops-bridge:test .
+        run: docker build -t adob-agents:test .
